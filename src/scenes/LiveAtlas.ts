@@ -282,12 +282,12 @@ export class LiveAtlas {
   };
 
   constructor(public scene: Phaser.Scene, public id: string) {
-    this.rt = scene.make.renderTexture({ width: 1, height: 1 });
+    this.rt = scene.make.renderTexture({ width: 4096, height: 4096 });
     // .setVisible(false);
 
     this.rt.saveTexture("live-atlas-" + id);
     // this.backbuffer = scene.make
-    //   .renderTexture({ width: 1, height: 1 })
+    //   .renderTexture({ width: 4096, height: 4096 })
     //   .setVisible(false);
     // this.backbuffer.saveTexture("live-atlas-backbuffer-" + id);
 
@@ -322,7 +322,6 @@ export class LiveAtlas {
       this.eraserCursor.setPosition(frameRect.x, frameRect.y);
       this.eraserCursor.setSize(frameRect.width, frameRect.height);
       this.rt.erase(this.eraserCursor);
-      this.rt.texture.remove(currentFrame);
     }
   }
 
@@ -344,10 +343,15 @@ export class LiveAtlas {
       );
 
       // get its dimensions (somehow..)
-      const dimensions = { width: 32, height: 32 };
+      const img = this.scene.textures.getFrame(currentFrame);
+      const dimensions = { width: img.width, height: img.height };
+      // console.log('dimensions', dimensions.width, dimensions.height)
 
       // add this to the render texture
       this.appendFrame(currentFrame, dimensions);
+
+      // remove the texture now that it's in the RT
+      this.scene.textures.remove(this.scene.textures.get(currentFrame));
     }
   }
 
@@ -386,13 +390,11 @@ export class LiveAtlas {
       this.rt.height < packedAtlas.height
     ) {
       // use `this.resizeTexture()` to increase the texture (by double? the exact amount??)
-
       this.resizeTexture(packedAtlas.width, packedAtlas.height);
     }
 
     // draw the image data to `this.rt` at its packed rect location
-    const img = this.scene.add.image(0, 0, key).setOrigin(0, 0);
-    this.rt.draw(img, packedFrame.x, packedFrame.y);
+    this.rt.draw(key, packedFrame.x, packedFrame.y);
     this.rt.texture.add(
       key,
       0,
@@ -401,14 +403,7 @@ export class LiveAtlas {
       packedFrame.width,
       packedFrame.height
     );
-    // console.log(
-    //   "frame added",
-    //   packedFrame.x,
-    //   packedFrame.y,
-    //   packedFrame.width,
-    //   packedFrame.height
-    // );
-    img.setVisible(false).destroy(true);
+    this.scene.textures.remove(key);
   };
 
   /**
@@ -435,8 +430,6 @@ export class LiveAtlas {
       const { id, x, y } = rect;
       // and draw the preserved frame at the _new_ rect position
       this.drawPreservedFrame(id, x, y);
-
-      // TODODODODOODODremove old frames
     }
 
     // finally, free the preserved state entirely
@@ -450,12 +443,13 @@ export class LiveAtlas {
     this.preserveTextureState();
     this.rt.resize(width, height);
     this.restoreTextureState();
+    this.freePreservedState();
   };
 
   private getBackbuffer = () => {
     if (!this.backbuffer) {
       this.backbuffer = this.scene.make
-        .renderTexture({ width: 1, height: 1 })
+        .renderTexture({ width: 4096, height: 4096 })
         .setVisible(false);
 
       this.backbuffer.saveTexture("live-atlas-backbuffer-" + this.id);
@@ -467,21 +461,29 @@ export class LiveAtlas {
    * makes a copy of the current internal texture data, preserving registered frame information
    */
   private preserveTextureState = () => {
+    if (!this.lastAtlas){ return; }
     // create backbuffer if needed
     const bb = this.getBackbuffer();
     // resize backbuffer to match this.rt
     bb.resize(this.rt.width, this.rt.height);
     // draw this.rt to backbuffer
     bb.draw(this.rt);
+
+    // console.log('bb is ready', this.rt.width, this.rt.height, ' : ' , bb.width, bb.height)
     // copy all of `this.rt`'s frames over to the backbuffer
     const ogFrameNames = this.rt.texture.getFrameNames();
     for (const frameName of ogFrameNames) {
-      const frame = this.rt.texture.get(frameName);
+      const frame = this.frames[frameName];
+      // const frame = this.rt.texture.get(frameName);
       if (!frame) {
         continue;
       }
+      console.log('saving frame', frameName, frame.x,
+      frame.y,
+      frame.width,
+      frame.height);
       bb.texture.add(
-        frame.name,
+        frameName,
         0,
         frame.x,
         frame.y,
@@ -504,6 +506,7 @@ export class LiveAtlas {
     for (const name of frameNames) {
       const frame = this.backbuffer.texture.get(name);
       if (!frame) {
+        console.log('no frame');
         continue;
       }
       // this.rt.texture.remove(name);
@@ -528,14 +531,15 @@ export class LiveAtlas {
       return;
     }
     // if no `key` on backbuffer's frames, exit/warn
-    if (!this.backbuffer.texture.get(key)) {
+    const frame = this.backbuffer.texture.get(key);
+    if (!frame) {
       console.warn('no preserved frame "' + key + '"');
       return;
     }
     // use drawFrame to draw the backbuffer's key to `x,y` on `this.rt`
-    this.rt.draw("live-atlas-backbuffer-" + this.id, x, y);
+    this.rt.draw(frame, x, y);
 
-    const frame = this.rt.texture.get(key);
-    this.rt.texture.add(key, 0, x, y, frame.width, frame.height);
+    // const frame = this.rt.texture.get(key);
+    // this.rt.texture.add(key, 0, x, y, frame.width, frame.height);
   };
 }

@@ -67,6 +67,7 @@ export default class MainScene extends Phaser.Scene {
         this.marios.push(mario);
       }
     });
+    this.loadBunchaObjects();
 
     this.topLabel = this.add.text(0, 0, "0 in atlas - 0 failed - 0 pending", {
       color: "#fff",
@@ -79,43 +80,6 @@ export default class MainScene extends Phaser.Scene {
       .setOrigin(0, 0) // Anchor to top left so (0,0) is flush against the corner
       .setDisplaySize(1024, 768) // Fit background image to window
       .setDepth(-1); // Behind everything
-
-    this.loadBunchaObjects();
-    // const atlas = this.make.renderTexture({ width: 4096, height: 4096 });
-    // // .setVisible(false);
-    // atlas.saveTexture("asdf");
-
-    // this.importImage(atlas, "https://i.imgur.com/nKgMvuj.png").then(() => {
-    //   let mario;
-    //   for (let i = 0; i < NUM_MARIOS; i++) {
-    //     mario = this.add
-    //       .image(32, 32, "asdf", "https://i.imgur.com/nKgMvuj.png")
-    //       .setData("velocity", {
-    //         x: Math.random() * 500,
-    //         y: Math.random() * 500,
-    //       })
-    //       // .setSize(32, 32)
-    //       .setDisplaySize(32, 32);
-
-    //     this.marios.push(mario);
-    //   }
-    // }).catch((err)=>{
-    //   console.log('err importing mario', err);
-    // })
-
-    // // const backbuffer = this.make.renderTexture({ width: 4096, height: 4096 }).setVisible(false);
-    // // atlas.fill(0xFF0000, 1.0, 0, 0, 4096, 4096);
-
-    // // this.cameras.main.setZoom(0.15);
-    // // this.cameras.main.centerOn(4096 / 2, 4096 / 2);
-
-    // // this.add.image(10, 10, 'asdf').setOrigin(0, 0);
-
-    // this.loadBunchaObjects(atlas); //, backbuffer);
-
-    // // const imgUrl = "https://cdn.gather.town/storage.googleapis.com/gather-town.appspot.com/uploads/lPnkx7ZwDqHgb6Td/wnfSaCjj7OaQMEU9oukAjd";
-    // // this.importImage(atlas, backbuffer, objectList[i]);
-    // // const imgUrl = 'https://i.imgur.com/nKgMvuj.png';
   };
 
   updateDebugText = () => {
@@ -136,11 +100,11 @@ export default class MainScene extends Phaser.Scene {
       }
       return acc;
     }, [] as string[]);
-    // const objectList = ["https://i.imgur.com/nKgMvuj.png"];
 
     this.pendingCount = objectList.length;
 
-    for (let i = 0; i < objectList.length / 2; i++) {
+    for (let i = 0; i < 25; i++) {
+      // objectList.length / 2; i++) {
       try {
         // await this.importImage(atlas, objectList[i]);
         await this.liveAtlas.addFrame(objectList[i]);
@@ -167,16 +131,20 @@ export default class MainScene extends Phaser.Scene {
       this.updateDebugText();
     }
 
-    setInterval(()=>{
-
-      const idx = 1 + (Math.random() * (objectList.length / 2) - 1) | 0;
+    let i = 0;
+    setInterval(() => {
+      i += 1;
+      const idx = (Math.random() * 100) | 0;
       // remove random frame
-      console.log('removing random frame...');
-      this.liveAtlas.removeFrame(objectList[idx]);
-
-      console.time('repack');
-      this.liveAtlas.repack();
-      console.timeEnd('repack');
+      // console.log('removing random frame...');
+      if (i % 2 === 0) {
+        console.log('removing random')
+        this.liveAtlas.removeFrame(objectList[idx], true);
+      } else {
+        console.time("repack");
+        this.liveAtlas.repack();
+        console.timeEnd("repack");
+      }
     }, 5000);
   };
 
