@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import MainScene from './scenes/MainScene';
 
 new Phaser.Game({
+  // type: Phaser.CANVAS,
   width: 1024,
   height: 768,
   backgroundColor: 0xA1E064,
