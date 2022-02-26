@@ -5422,7 +5422,7 @@ phantomjs-prebuilt@^2.1.7:
     request-progress "^2.0.1"
     which "^1.2.10"
 
-phaser@3.60.0-beta.5:
+phaser@3.60.0-beta.4:
   version "3.60.0-beta.4"
   resolved "https://registry.yarnpkg.com/phaser/-/phaser-3.60.0-beta.4.tgz#2cb739fbeafc2539357b94113a08a49b6195881d"
   integrity sha512-/DxXNuFyW5mnP3GerI4TKpR6KJu6uB1xWnEOM2JR67SzL4NR5CEWAaS1GAAXZmcnpJuPNMKaev9aD7f62b8Ggw==
