@@ -3,7 +3,7 @@ import MainScene from './scenes/MainScene';
 
 setTimeout(()=>{
   new Phaser.Game({
-    type: Phaser.WEBGL,
+    type: Phaser.CANVAS,
     pixelArt: true,
     width: 4096,
     height: 4096,

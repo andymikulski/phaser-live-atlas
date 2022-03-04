@@ -116,9 +116,10 @@ export default class MainScene extends Phaser.Scene {
       return acc;
     }, [] as string[]);
 
-    this.pendingCount = objectList.length;
+    this.pendingCount = 25;
 
-    for (let i = 0; i < objectList.length; i++) {
+    for (let i = 0; i < 25; i++) {
+      await new Promise(res => setTimeout(res, 100));
       try {
         if (this.liveAtlas.hasFrame(objectList[i])){
         this.pendingCount -= 1;
@@ -143,7 +144,7 @@ export default class MainScene extends Phaser.Scene {
         this.marios.push(img);
       } catch (err) {
         this.failedCount += 1;
-        // console.log('err in ',i,err)
+        console.log('err in ',i,err)
       }
 
       this.pendingCount -= 1;

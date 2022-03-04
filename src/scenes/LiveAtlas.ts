@@ -46,8 +46,7 @@ export type ImageFrame = {
 };
 export type Atlas = {
   rects: PackedRect[];
-  contentWidth: number;
-  contentHeight: number;
+  rectsOriginal: PackedRect[];
   width: number;
   height: number;
   fill: number;
@@ -105,9 +104,9 @@ export function tryPackRects(
   existing?: Atlas
 ): Atlas {
   // const rectsToProcess = rects;
-  if (existing?.rects) {
-    Array.prototype.push.apply(rects, existing.rects);
-  }
+  // if (existing?.rectsOriginal) {
+  //   Array.prototype.push.apply(rects, existing.rectsOriginal);
+  // }
 
   // calculate total rect area and maximum rect width
   let area = 0;
@@ -115,7 +114,9 @@ export function tryPackRects(
 
   let rectHeight = 0;
   let rectWidth = 0;
-  for (const rect of rects) {
+
+  const rectsToMeasure = rects.concat(existing?.rectsOriginal || []);
+  for (const rect of rectsToMeasure) {
     rectWidth = rect.width || objectSizes;
     rectHeight = rect.height || objectSizes;
 
@@ -134,16 +135,17 @@ export function tryPackRects(
   const startWidth = Math.max(Math.ceil(Math.sqrt(area / 0.95)), maxWidth);
 
   // start with a single empty space, unbounded at the bottom
-  const spaces: AtlasSpace[] = [
+  const spaces: AtlasSpace[] = existing?.spaces ?? [
     { x: 0, y: 0, width: startWidth, height: Infinity },
   ];
-  debugger;
+
 
   let width = 0;
   let height = 0;
 
   let incomingRect;
-  const placedRects: PackedRect[] = [];
+  const placedRects: PackedRect[] = existing?.rectsOriginal ?? [];
+
   for (let idx = 0; idx < rects.length; idx++) {
     incomingRect = rects[idx];
     if (!incomingRect) {
@@ -241,8 +243,7 @@ export function tryPackRects(
       width: x.width - padding * 2,
       id: x.id,
     })),
-    contentWidth: width,
-    contentHeight: height,
+    rectsOriginal: placedRects,
     width: width,
     height: height,
     fill: area / (width * height) || 0,
@@ -289,9 +290,9 @@ export class LiveAtlas {
     (window as any).debugRT = this.showDebugTexture;
   }
 
-  public hasFrame = (frame:string) => {
+  public hasFrame = (frame: string) => {
     return !!this.frames[frame];
-  }
+  };
 
   /**
    * only do this AFTER it's certain this frame isn't being used
@@ -358,21 +359,32 @@ export class LiveAtlas {
     }
   }
 
+  private cursor?: Phaser.GameObjects.Rectangle;
   private appendFrame = (
     key: string,
     dimensions: { width: number; height: number }
   ) => {
-    const items = Object.keys(this.frames).map((key) => ({
-      width: this.frames[key]?.width || 0,
-      height: this.frames[key]?.height || 0,
-      id: key,
-    }));
-    items.push({
-      height: dimensions.height,
-      width: dimensions.width,
-      id: key,
-    });
-    const packedAtlas = tryPackRects(items, 1);
+    // const items = Object.keys(this.frames).map((key) => ({
+    //   width: this.frames[key]?.width || 0,
+    //   height: this.frames[key]?.height || 0,
+    //   id: key,
+    // }));
+    // items.push({
+    //   height: dimensions.height,
+    //   width: dimensions.width,
+    //   id: key,
+    // });
+    const packedAtlas = tryPackRects(
+      [
+        {
+          height: dimensions.height,
+          width: dimensions.width,
+          id: key,
+        },
+      ],
+      1,
+      this.lastAtlas
+    );
 
     this.lastAtlas = packedAtlas;
     // set `this.frames[currentFrame]` to match whatever its packed rect was determiend to be in ^
@@ -396,8 +408,15 @@ export class LiveAtlas {
       this.resizeTexture(packedAtlas.width, packedAtlas.height);
     }
 
+    if (!this.cursor) {
+      this.cursor = this.rt.scene.add.rectangle(0, 0, 1, 1).setOrigin(0, 0);
+    }
+    // this.cursor.setFillStyle(0xffffff * Math.random());
+    // this.cursor.setPosition(packedFrame.x, packedFrame.y);
+    // this.cursor.setSize(packedFrame.width, packedFrame.height);
     // draw the image data to `this.rt` at its packed rect location
     this.rt.draw(key, packedFrame.x, packedFrame.y);
+    // this.rt.draw(this.cursor);
     this.rt.texture.add(
       key,
       0,
@@ -407,6 +426,17 @@ export class LiveAtlas {
       packedFrame.height
     );
     this.scene.textures.remove(key);
+
+    for (let i = 0; i < this.lastAtlas.spaces.length; i++) {
+      const space = this.lastAtlas.spaces[i];
+      this.cursor.setFillStyle(0xff00ff);
+      this.cursor.setPosition(space.x, space.y);
+      this.cursor.setSize(
+        Math.min(10000, space.width),
+        Math.min(10000, space.height)
+      );
+      this.rt.draw(this.cursor);
+    }
   };
 
   /**
@@ -600,12 +630,18 @@ export class LiveAtlas {
       };
       image: string;
     }>((res) => {
-      this.rt.snapshotArea(0,0,this.rt.width,this.rt.height, (snap: HTMLImageElement) => {
-        return res({
-          frames: this.serializeFrames(),
-          image: snap.src,
-        });
-      });
+      this.rt.snapshotArea(
+        0,
+        0,
+        this.rt.width,
+        this.rt.height,
+        (snap: HTMLImageElement) => {
+          return res({
+            frames: this.serializeFrames(),
+            image: snap.src,
+          });
+        }
+      );
     });
   };
 
