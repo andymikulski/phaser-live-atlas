@@ -59,40 +59,44 @@ export default class MainScene extends Phaser.Scene {
 
     this.liveAtlas = new LiveAtlas(this, "main");
 
+    // this.liveAtlas.addFrame('https://i.imgur.com/nKgMvuj.png');
+
     const existing = JSON.parse(
       sessionStorage.getItem("live-atlas-storage") || "null"
     );
     if (existing) {
-      console.time('import existing');
-      this.liveAtlas.importData(existing.frames, existing.image).then(() => {
-      console.timeEnd('import existing');
-      console.log('asdf', Object.values(existing.frames).length);
-      console.log(
-          "AHHHHmario should be availalbe",
-          this.liveAtlas.textureKey()
-        );
-
-        let mario;
-        for (let i = 0; i < NUM_MARIOS; i++) {
-          mario = this.add
-            .image(
-              32,
-              32,
-              this.liveAtlas.textureKey(),
-              "https://i.imgur.com/nKgMvuj.png"
-            )
-            .setData("velocity", {
-              x: Math.random() * 500,
-              y: Math.random() * 500,
-            })
-            // .setSize(32, 32)
-            .setDisplaySize(32, 32);
-          this.marios.push(mario);
-        }
-      });
-
-      // return;
+      console.time("import existing");
+      this.liveAtlas.importExistingAtlas(existing.frames, existing.image); // .then(() => {
+      console.timeEnd("import existing");
     }
+    //   console.timeEnd('import existing');
+    //   console.log('asdf', Object.values(existing.frames).length);
+    //   console.log(
+    //       "AHHHHmario should be availalbe",
+    //       this.liveAtlas.textureKey()
+    //     );
+
+    //     let mario;
+    //     for (let i = 0; i < NUM_MARIOS; i++) {
+    //       mario = this.add
+    //         .image(
+    //           32,
+    //           32,
+    //           this.liveAtlas.textureKey(),
+    //           "https://i.imgur.com/nKgMvuj.png"
+    //         )
+    //         .setData("velocity", {
+    //           x: Math.random() * 500,
+    //           y: Math.random() * 500,
+    //         })
+    //         // .setSize(32, 32)
+    //         .setDisplaySize(32, 32);
+    //       this.marios.push(mario);
+    //     }
+    //   });
+
+    //   // return;
+    // }
 
     this.loadBunchaObjects();
   };
@@ -109,26 +113,19 @@ export default class MainScene extends Phaser.Scene {
   };
 
   loadBunchaObjects = async () => {
-    const objectList = Object.values(objectData).reduce((acc, curr) => {
-      if (acc.indexOf(curr) === -1) {
-        acc.push(curr);
-      }
-      return acc;
-    }, [] as string[]);
+    const objectList = objectData;
 
-    this.pendingCount = 25;
+    this.pendingCount = objectList.length;
 
-    for (let i = 0; i < 25; i++) {
-      await new Promise(res => setTimeout(res, 100));
+    for (let i = 0; i < objectList.length; i++) {
+      await new Promise((res) => setTimeout(res, 100));
       try {
-        if (this.liveAtlas.hasFrame(objectList[i])){
-        this.pendingCount -= 1;
-        continue;
+        if (!this.liveAtlas.hasFrame(objectList[i])) {
+          await this.liveAtlas.addFrame(objectList[i]);
+          this.loadedCount += 1;
         }
+        this.pendingCount -= 1;
 
-        // await this.importImage(atlas, objectList[i]);
-        await this.liveAtlas.addFrame(objectList[i]);
-        this.loadedCount += 1;
         const img = this.add.image(
           0,
           0,
@@ -144,34 +141,32 @@ export default class MainScene extends Phaser.Scene {
         this.marios.push(img);
       } catch (err) {
         this.failedCount += 1;
-        console.log('err in ',i,err)
+        console.log("err in ", i, err);
       }
 
       this.pendingCount -= 1;
       this.updateDebugText();
     }
 
-    this.liveAtlas.saveToLocalStorage().then(()=>{console.log('saved')})
+    this.liveAtlas.saveToLocalStorage();
+    console.log("saved");
 
-    let i = 0;
+    // let i = 0;
     // setInterval(() => {
     //   i += 1;
     //   const idx = (Math.random() * 25) | 0;
     //   // remove random frame
-    //   // console.log('removing random frame...');
-    //   if (i % 2 === 0) {
+    //   console.log('removing random frame...');
+    //   if (i % 2 !== 0) {
     //     console.log("removing random");
-    //     this.liveAtlas.removeFrame(objectList[idx]);
+    //     this.liveAtlas.removeFrame(objectList[idx], true);
     //   } else {
-    //     console.log(
-    //       "export",
-    //       this.liveAtlas.exportData().then((data) => {
-    //         console.log("saving data..", data);
-    //         localStorage.setItem("live-atlas-saved", JSON.stringify(data));
-    //       })
-    //     );
+    //     console.log('repacking..');
+    //     this.liveAtlas.repack();
     //   }
     // }, 2000);
+
+    (window as any).repack = this.liveAtlas.repack.bind(this.liveAtlas);
   };
 
   // imageStamp: Phaser.GameObjects.Image;
