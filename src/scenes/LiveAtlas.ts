@@ -244,6 +244,7 @@ export class LiveAtlas {
       packedFrame.width,
       packedFrame.height
     );
+
     this.scene.textures.remove(key);
   };
 
@@ -253,12 +254,15 @@ export class LiveAtlas {
    * uses binpacking on the registered frames and then redraws the underlying render texture for optimal sizing
    */
   public repack() {
+    // Use existing frames in memory
     const items = Object.keys(this.frames)
+      // Convert them to a simple format for the packer
       .map((key) => ({
         width: this.frames[key]?.width || 0,
         height: this.frames[key]?.height || 0,
         id: key,
       }))
+      // Sort by taller -> shorter (and wider -> thinner) for a more compact layout
       .sort((a, b) => {
         if (a.height === b.height) {
           return a.width < b.width ? 1 : -1;
@@ -266,9 +270,11 @@ export class LiveAtlas {
         return a.height < b.height ? 1 : -1;
       });
 
+    // Pack!
     this.packer.clear();
     const packed = this.packer.pack(items);
 
+    // Preserve the state as we will transfer the current frame data
     this.preserveTextureState();
 
     // `this.rt.resize()` to match `packed`'s dimensions (this clears the RT)
@@ -282,10 +288,18 @@ export class LiveAtlas {
       // and draw the preserved frame at the _new_ rect position
       this.drawPreservedFrame(id, x, y);
 
+      this.frames[id.toString()] = new Phaser.Geom.Rectangle(
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height
+      );
+
       // Add frame to RT
-      const frame = this.rt.texture.get(id);
+      let frame = this.rt.texture.get(id);
+      // console.log("putting frame...", rect.x, rect.y, rect.width, rect.height);
       if (!frame) {
-        this.rt.texture.add(
+        frame = this.rt.texture.add(
           id.toString(),
           0,
           rect.x,
@@ -293,11 +307,23 @@ export class LiveAtlas {
           rect.width,
           rect.height
         );
-      } else {
-        frame.x = rect.x;
-        frame.y = rect.y;
-        frame.updateUVs();
-      }
+        console.log("frame added...", id.toString());
+      } //else {
+      //   console.log("existing frame..", frame.x, frame.y);
+
+      //   console.log("updated frame...", frame.x, frame.y);
+      //   debugger;
+      // }
+
+      frame.setTrim(
+        rect.width,
+        rect.height,
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height
+      );
+      debugger;
     }
 
     // finally, free the preserved state entirely
@@ -323,9 +349,13 @@ export class LiveAtlas {
    */
   private getBackbuffer = () => {
     if (!this.backbuffer) {
-      this.backbuffer = this.scene.make
-        .renderTexture({ width: 1, height: 1 })
-        .setVisible(false);
+      this.backbuffer = this.scene.add.renderTexture(0, 0, 100, 100);
+      // .setOrigin(0, 0)
+      // .setPosition(100, 100)
+      // .setDepth(Infinity);
+      // .setVisible(false);
+
+      this.backbuffer.fill(0xff0000);
 
       this.backbuffer.saveTexture(this.backbufferKey());
     }
@@ -338,10 +368,13 @@ export class LiveAtlas {
   private preserveTextureState = () => {
     // create backbuffer if needed
     const bb = this.getBackbuffer();
+
     // resize backbuffer to match this.rt
     bb.resize(this.rt.width, this.rt.height);
+
     // draw this.rt to backbuffer
     bb.draw(this.rt);
+
     // copy all of `this.rt`'s frames over to the backbuffer
     const ogFrameNames = this.rt.texture.getFrameNames();
     for (const frameName of ogFrameNames) {
@@ -363,19 +396,9 @@ export class LiveAtlas {
     if (!this.backbuffer) {
       return;
     }
+
     // draw backbuffer to this.rt
     this.rt.draw(this.backbuffer);
-
-    // Install old framings
-    const frameNames = this.backbuffer.texture.getFrameNames();
-    for (const name of frameNames) {
-      const frame = this.backbuffer.texture.get(name);
-      if (!frame) {
-        continue;
-      }
-      // this.rt.texture.remove(name);
-      this.rt.texture.add(name, 0, frame.x, frame.y, frame.width, frame.height);
-    }
 
     // clear/resize/free backbuffe
     this.freePreservedState();
@@ -441,8 +464,8 @@ export class LiveAtlas {
       acc[frameUrl] = {
         x: frame.x,
         y: frame.y,
-        width: 128,
-        height: 64,
+        width: frame.width,
+        height: frame.height,
       };
       return acc;
     }, {});
@@ -505,40 +528,12 @@ export class LiveAtlas {
       this.trimCanvas.draw(0, 0, imgDataSource);
       url = this.trimCanvas.canvas.toDataURL();
       url = imgDataSource.toDataURL();
-      console.log("imgDataSource", url, imgDataSource);
-    } else {
-      console.log("AHHHHHHHHHHHH", imgDataSource);
     }
 
     return {
       frames: this.serializeFrames(),
       image: url,
     };
-
-    // return new Promise<{
-    //   frames: {
-    //     [imageUrl: string]: {
-    //       width: number;
-    //       height: number;
-    //       x: number;
-    //       y: number;
-    //     };
-    //   };
-    //   image: string;
-    // }>((res) => {
-    //   this.rt.snapshotArea(
-    //     0,
-    //     0,
-    //     this.rt.width,
-    //     this.rt.height,
-    //     (snap: HTMLImageElement) => {
-    //       return res({
-    //         frames: this.serializeFrames(),
-    //         image: snap.src,
-    //       });
-    //     }
-    //   );
-    // });
   };
 
   /**
@@ -608,6 +603,7 @@ export class LiveAtlas {
     this.repack();
 
     const data = await this.exportSerializedData();
+    console.log("saving data...", data);
     const json = JSON.stringify(data);
     sessionStorage.setItem(storageKey, json);
   };

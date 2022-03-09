@@ -75,7 +75,6 @@ export default class MainScene extends Phaser.Scene {
     //       "AHHHHmario should be availalbe",
     //       this.liveAtlas.textureKey()
     //     );
-
     //     let mario;
     //     for (let i = 0; i < NUM_MARIOS; i++) {
     //       mario = this.add
@@ -94,7 +93,6 @@ export default class MainScene extends Phaser.Scene {
     //       this.marios.push(mario);
     //     }
     //   });
-
     //   // return;
     // }
 
@@ -113,7 +111,7 @@ export default class MainScene extends Phaser.Scene {
   };
 
   loadBunchaObjects = async () => {
-    const objectList = objectData;
+    const objectList = objectData.slice(0, 20);
 
     this.pendingCount = objectList.length;
 
