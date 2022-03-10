@@ -114,7 +114,7 @@ export default class MainScene extends Phaser.Scene {
   };
 
   loadBunchaObjects = async () => {
-    const objectList = objectData; // .slice(0, 500);
+    const objectList = objectData.slice(0, 500);
 
     this.pendingCount = objectList.length;
 
@@ -136,19 +136,19 @@ export default class MainScene extends Phaser.Scene {
         }
         this.pendingCount -= 1;
 
-        // const img = this.add.image(
-        //   0,
-        //   0,
-        //   this.liveAtlas.textureKey(),
-        //   objectList[i]
-        // );
+        const img = this.add.image(
+          0,
+          0,
+          this.liveAtlas.textureKey(),
+          objectList[i]
+        );
 
-        // img.setData("velocity", {
-        //   x: Math.random() * 500,
-        //   y: Math.random() * 500,
-        // });
+        img.setData("velocity", {
+          x: Math.random() * 500,
+          y: Math.random() * 500,
+        });
 
-        // this.marios.push(img);
+        this.marios.push(img);
       } catch (err) {
         this.failedCount += 1;
         console.log("err in ", i, err);
@@ -160,7 +160,7 @@ export default class MainScene extends Phaser.Scene {
 
     console.log("done");
     (window as any).saveRT = () => this.liveAtlas.saveToLocalStorage();
-    // console.log("saved");
+    // console.log("saved", await this.liveAtlas.saveToLocalStorage());
 
     // let i = 0;
     // setInterval(() => {

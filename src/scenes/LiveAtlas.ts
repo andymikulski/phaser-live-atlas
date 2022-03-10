@@ -1,7 +1,15 @@
 import { trimImageEdges } from "../imageTrimming";
 import { asyncLoader } from "./asyncLoader";
 import { Atlas } from "./ImageFrame";
+import LocalBlobCache from "./LocalBlobCache";
 import ShelfPack from "./ShelfPack";
+
+type SerializedAtlas = {
+  frames: {
+    [id: string]: { x: number; y: number; width: number; height: number };
+  };
+  image: string;
+};
 
 export class LiveAtlas {
   private frames: { [imgUrl: string]: Phaser.Geom.Rectangle } = {};
@@ -264,10 +272,10 @@ export class LiveAtlas {
       }))
       // Sort by taller -> shorter (and wider -> thinner) for a more compact layout
       .sort((a, b) => {
-        if (a.height === b.height) {
-          return a.width < b.width ? 1 : -1;
+        if (a.height >= b.height) {
+          return a.width > b.width ? 1 : -1;
         }
-        return a.height < b.height ? 1 : -1;
+        return a.height > b.height ? 1 : -1;
       });
 
     // Pack!
@@ -310,8 +318,8 @@ export class LiveAtlas {
         console.log("frame added...", id.toString());
       }
 
-      frame.setTrim(rect.width, rect.height, 0, 0, rect.width, rect.height);
-      debugger;
+      // frame.setTrim(rect.width, rect.height, 0, 0, rect.width, rect.height);
+      frame.setSize(rect.width, rect.height, rect.x, rect.y);
     }
 
     // finally, free the preserved state entirely
@@ -497,7 +505,7 @@ export class LiveAtlas {
    *
    * @return  {[type]}  [return description]
    */
-  public exportSerializedData = async () => {
+  public exportSerializedData = async (): Promise<SerializedAtlas> => {
     // this.repack();
 
     const imgDataSource = this.rt.texture.getSourceImage();
@@ -560,7 +568,7 @@ export class LiveAtlas {
       );
     }
 
-    console.log("importing saved image..");
+    console.log("importing base64 image..");
     this.scene.textures.addBase64(key, imageUri);
 
     return new Promise<void>((res) => {
@@ -597,8 +605,10 @@ export class LiveAtlas {
 
     const data = await this.exportSerializedData();
     console.log("saving data...", data);
-    const json = JSON.stringify(data);
-    sessionStorage.setItem(storageKey, json);
+    // const json = JSON.stringify(data);
+    // sessionStorage.setItem(storageKey, json);
+    await LocalBlobCache.saveBlob(storageKey, data);
+    console.log("saved as blob to idb");
   };
 
   /**
@@ -606,14 +616,30 @@ export class LiveAtlas {
    *
    * @return  {[type]}  [return description]
    */
-  public loadFromLocalStorage = async () => {
-    const data = JSON.parse(
-      sessionStorage.getItem("live-atlas-storage") || "null"
-    );
+  public loadFromLocalStorage = async (storageKey = "live-atlas-storage") => {
+    // const data = JSON.parse(
+    //   sessionStorage.getItem("live-atlas-storage") || "null"
+    // );
+    const data = await LocalBlobCache.loadBlob(storageKey);
     if (!data) {
       return;
     }
-    await this.importExistingAtlas(data.frames, data.image);
+
+    if (data instanceof Blob) {
+      console.log("shouldnt happen");
+      return;
+    }
+
+    try {
+      const parsedData: SerializedAtlas = JSON.parse(data);
+      if (!parsedData || !parsedData.frames || !parsedData.image) {
+        return;
+      }
+      console.log('parseddata', parsedData);
+      await this.importExistingAtlas(parsedData.frames, parsedData.image);
+    } catch (err) {
+      return;
+    }
   };
 
   /**

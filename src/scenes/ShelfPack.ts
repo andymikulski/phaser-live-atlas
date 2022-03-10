@@ -267,7 +267,7 @@ export default class ShelfPack {
     if (best.shelf !== -1) {
       return this.allocShelf(best.shelf, w, h, id);
     }
-
+  
     // No free bins or shelves.. add shelf..
     if (h <= this.height - y && w <= this.width) {
       shelf = new Shelf(y, this.width, h);
