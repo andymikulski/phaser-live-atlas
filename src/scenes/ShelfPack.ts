@@ -287,11 +287,11 @@ export default class ShelfPack {
 
       if (w1 <= h1 || w > w1) {
         // grow width..
-        w2 = Math.max(w, w1) + 2;
+        w2 = Math.ceil(Math.max(w, w1) * 1.25);
       }
       if (h1 < w1 || h > h1) {
         // grow height..
-        h2 = Math.max(h, h1) + 2;
+        h2 = Math.ceil(Math.max(h, h1) * 1.25);
       }
 
       this.resize(w2, h2);

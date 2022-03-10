@@ -66,8 +66,11 @@ export default class MainScene extends Phaser.Scene {
     );
     if (existing) {
       console.time("import existing");
-      this.liveAtlas.importExistingAtlas(existing.frames, existing.image); // .then(() => {
-      console.timeEnd("import existing");
+      this.liveAtlas
+        .importExistingAtlas(existing.frames, existing.image)
+        .then(() => {
+          console.timeEnd("import existing");
+        });
     }
     //   console.timeEnd('import existing');
     //   console.log('asdf', Object.values(existing.frames).length);
@@ -111,12 +114,21 @@ export default class MainScene extends Phaser.Scene {
   };
 
   loadBunchaObjects = async () => {
-    const objectList = objectData.slice(0, 20);
+    const objectList = objectData; // .slice(0, 500);
 
     this.pendingCount = objectList.length;
 
+
+
+
     for (let i = 0; i < objectList.length; i++) {
-      await new Promise((res) => setTimeout(res, 100));
+      if (i % 100 === 0) {
+        console.log(((i / objectList.length) * 100) + '% done');
+      //   // repack every 100 items
+      //   this.liveAtlas.repack();
+      }
+
+      // await new Promise((res) => setTimeout(res, 100));
       try {
         if (!this.liveAtlas.hasFrame(objectList[i])) {
           await this.liveAtlas.addFrame(objectList[i]);
@@ -124,19 +136,19 @@ export default class MainScene extends Phaser.Scene {
         }
         this.pendingCount -= 1;
 
-        const img = this.add.image(
-          0,
-          0,
-          this.liveAtlas.textureKey(),
-          objectList[i]
-        );
+        // const img = this.add.image(
+        //   0,
+        //   0,
+        //   this.liveAtlas.textureKey(),
+        //   objectList[i]
+        // );
 
-        img.setData("velocity", {
-          x: Math.random() * 500,
-          y: Math.random() * 500,
-        });
+        // img.setData("velocity", {
+        //   x: Math.random() * 500,
+        //   y: Math.random() * 500,
+        // });
 
-        this.marios.push(img);
+        // this.marios.push(img);
       } catch (err) {
         this.failedCount += 1;
         console.log("err in ", i, err);
@@ -146,8 +158,9 @@ export default class MainScene extends Phaser.Scene {
       this.updateDebugText();
     }
 
-    this.liveAtlas.saveToLocalStorage();
-    console.log("saved");
+    console.log("done");
+    (window as any).saveRT = () => this.liveAtlas.saveToLocalStorage();
+    // console.log("saved");
 
     // let i = 0;
     // setInterval(() => {

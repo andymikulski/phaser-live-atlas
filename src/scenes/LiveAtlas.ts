@@ -308,21 +308,9 @@ export class LiveAtlas {
           rect.height
         );
         console.log("frame added...", id.toString());
-      } //else {
-      //   console.log("existing frame..", frame.x, frame.y);
+      }
 
-      //   console.log("updated frame...", frame.x, frame.y);
-      //   debugger;
-      // }
-
-      frame.setTrim(
-        rect.width,
-        rect.height,
-        rect.x,
-        rect.y,
-        rect.width,
-        rect.height
-      );
+      frame.setTrim(rect.width, rect.height, 0, 0, rect.width, rect.height);
       debugger;
     }
 
@@ -552,15 +540,35 @@ export class LiveAtlas {
     },
     imageUri: string
   ) => {
-    const key = this.textureKey() + "-import";
+    const key = this.textureKey() + "-import-" + Math.random();
     this.frames = this.deserializeFrames(frames);
 
+    console.log("adding frames to rt texture..");
+
+    for (const frameUrl in this.frames) {
+      const frame = this.frames[frameUrl];
+      if (!frame) {
+        continue;
+      }
+      this.rt.texture.add(
+        frameUrl,
+        0,
+        frame.x,
+        frame.y,
+        frame.width,
+        frame.height
+      );
+    }
+
+    console.log("importing saved image..");
     this.scene.textures.addBase64(key, imageUri);
 
     return new Promise<void>((res) => {
       this.scene.textures.on(
         Phaser.Textures.Events.LOAD,
         (key: string, texture: Phaser.Textures.Texture) => {
+          console.log("inside texture load...");
+
           const frame = (
             texture.frames as { [key: string]: Phaser.Textures.Frame }
           )[texture.firstFrame];
@@ -572,21 +580,6 @@ export class LiveAtlas {
 
           // Remove the base64 texture since it's now in the RT
           this.scene.textures.remove(key);
-
-          for (const frameUrl in this.frames) {
-            const frame = this.frames[frameUrl];
-            if (!frame) {
-              continue;
-            }
-            this.rt.texture.add(
-              frameUrl,
-              0,
-              frame.x,
-              frame.y,
-              frame.width,
-              frame.height
-            );
-          }
 
           res();
         }
