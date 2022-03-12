@@ -383,6 +383,11 @@ export class LiveAtlas {
       if (!frame) {
         continue;
       }
+
+      // Free any previous frame with this same name
+      if (bb.texture.has(frameName)) {
+        bb.texture.remove(frameName);
+      }
       bb.texture.add(frameName, 0, frame.x, frame.y, frame.width, frame.height);
     }
   };
@@ -417,6 +422,13 @@ export class LiveAtlas {
     }
     this.backbuffer.resize(0, 0);
     this.backbuffer.clear();
+
+    // Remove any applied texture frames to free memory
+    const existingFrames = this.backbuffer.texture.getFrameNames();
+    for (let i = 0; i < existingFrames.length; i++) {
+      this.backbuffer.texture.remove(existingFrames[i]);
+    }
+
     // destroy backbuffer? maybe? check perf to see if it's worth it to pool this instance
   };
 
@@ -579,7 +591,6 @@ export class LiveAtlas {
     const incomingPacker = JSON.parse(packerData);
     this.packer = new ShelfPack(1, 1, { autoResize: true });
     for (const key in incomingPacker) {
-      console.log('putting..', key, incomingPacker[key]);
       if (key === 'shelves') {
         for (let i = 0; i < incomingPacker[key].length; i++) {
           const incomingShelf = incomingPacker[key][i];
@@ -627,7 +638,7 @@ export class LiveAtlas {
    * @return  {[type]}  [return description]
    */
   public saveToLocalStorage = async () => {
-    this.repack();
+    // this.repack();
 
     const data = await this.exportSerializedData();
     console.log("saving data...", data);
@@ -658,7 +669,6 @@ export class LiveAtlas {
       if (!parsedData || !parsedData.frames || !parsedData.image) {
         return;
       }
-      console.log('parseddata', parsedData);
       console.time('load existing');
       await this.importExistingAtlas(parsedData.frames, parsedData.image, parsedData.packerData);
       console.timeEnd('load existing');
@@ -696,11 +706,15 @@ export class LiveAtlas {
   };
 
   /**
-   * `LINEAR` for smooth
-   * `NEAREST` for pixelated
+   * Use this to ensure the texture has a crisp appearance when scaled/zoomed.
+   * By default, this is `false`, meaning the atlas texture is rendered in a smoother fashion.
    */
-  public setFilterMode = (mode: Phaser.Textures.FilterMode) => {
-    this.rt.texture.setFilter(mode);
+  public setPixelArt = (isPixelArt: boolean) => {
+    this.rt.texture.setFilter(
+      isPixelArt
+        ? Phaser.Textures.FilterMode.NEAREST
+        : Phaser.Textures.FilterMode.LINEAR
+    );
   }
 }
 

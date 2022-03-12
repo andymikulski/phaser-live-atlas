@@ -60,7 +60,7 @@ export default class MainScene extends Phaser.Scene {
 
     this.liveAtlas = new LiveAtlas(this, "main");
 
-    this.liveAtlas.setFilterMode(Phaser.Textures.FilterMode.NEAREST);
+    this.liveAtlas.setPixelArt(true);
 
     // this.liveAtlas.addFrame('https://i.imgur.com/nKgMvuj.png');
 
@@ -70,6 +70,8 @@ export default class MainScene extends Phaser.Scene {
       this.reportUsageSize();
       this.reportEstimatedQuotaUsage();
       this.loadBunchaObjects();
+
+      (window as any).loadBunchaObjects = this.loadBunchaObjects;
     })
   };
 
@@ -84,20 +86,17 @@ export default class MainScene extends Phaser.Scene {
     );
   };
 
-  loadBunchaObjects = async () => {
-    const objectList = objectData.slice(0, 20);
+  loadBunchaObjects = async (start = 0, end = 20) => {
+    const objectList = objectData.slice(start, end);
 
     this.pendingCount = objectList.length;
 
-
-
-
     for (let i = 0; i < objectList.length; i++) {
-      if (i % 5 === 0) {
-        console.log('repack')
-      //   // repack every 100 items
-        this.liveAtlas.repack();
-      }
+      // if (i % 100 === 0) {
+      //   console.log('repack')
+      // //   // repack every 100 items
+      //   this.liveAtlas.repack();
+      // }
 
       // await new Promise((res) => setTimeout(res, 100));
       // try {
@@ -276,6 +275,7 @@ export default class MainScene extends Phaser.Scene {
       // Move the thing
       mario.x += velocity.x * delta * 0.001;
       mario.y += velocity.y * delta * 0.001;
+      mario.angle += velocity.x * delta * 0.001;
 
       // Check if we hit a boundary and bounce
       if (mario.x > 1024 || mario.x < 0) {
