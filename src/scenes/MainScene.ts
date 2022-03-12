@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { LiveAtlas } from "./LiveAtlas";
+import LocalBlobCache from "./LocalBlobCache";
 import objectData from "./objectData";
 
 export const asyncLoader = (
@@ -59,62 +60,32 @@ export default class MainScene extends Phaser.Scene {
 
     this.liveAtlas = new LiveAtlas(this, "main");
 
+    this.liveAtlas.setFilterMode(Phaser.Textures.FilterMode.NEAREST);
+
     // this.liveAtlas.addFrame('https://i.imgur.com/nKgMvuj.png');
 
-    const existing = JSON.parse(
-      sessionStorage.getItem("live-atlas-storage") || "null"
-    );
-    if (existing) {
-      console.time("import existing");
-      this.liveAtlas
-        .importExistingAtlas(existing.frames, existing.image)
-        .then(() => {
-          console.timeEnd("import existing");
-        });
-    }
-    //   console.timeEnd('import existing');
-    //   console.log('asdf', Object.values(existing.frames).length);
-    //   console.log(
-    //       "AHHHHmario should be availalbe",
-    //       this.liveAtlas.textureKey()
-    //     );
-    //     let mario;
-    //     for (let i = 0; i < NUM_MARIOS; i++) {
-    //       mario = this.add
-    //         .image(
-    //           32,
-    //           32,
-    //           this.liveAtlas.textureKey(),
-    //           "https://i.imgur.com/nKgMvuj.png"
-    //         )
-    //         .setData("velocity", {
-    //           x: Math.random() * 500,
-    //           y: Math.random() * 500,
-    //         })
-    //         // .setSize(32, 32)
-    //         .setDisplaySize(32, 32);
-    //       this.marios.push(mario);
-    //     }
-    //   });
-    //   // return;
-    // }
-
-    this.loadBunchaObjects();
+    console.time('load existing');
+    this.liveAtlas.loadFromLocalStorage().then(() => {
+      console.timeEnd('load existing');
+      this.reportUsageSize();
+      this.reportEstimatedQuotaUsage();
+      this.loadBunchaObjects();
+    })
   };
 
   updateDebugText = () => {
     this.topLabel?.setText(
       this.loadedCount +
-        " in atlas - " +
-        this.failedCount +
-        " failed - " +
-        this.pendingCount +
-        " pending"
+      " in atlas - " +
+      this.failedCount +
+      " failed - " +
+      this.pendingCount +
+      " pending"
     );
   };
 
   loadBunchaObjects = async () => {
-    const objectList = objectData.slice(0, 500);
+    const objectList = objectData.slice(0, 20);
 
     this.pendingCount = objectList.length;
 
@@ -122,24 +93,39 @@ export default class MainScene extends Phaser.Scene {
 
 
     for (let i = 0; i < objectList.length; i++) {
-      if (i % 100 === 0) {
-        console.log(((i / objectList.length) * 100) + '% done');
+      if (i % 5 === 0) {
+        console.log('repack')
       //   // repack every 100 items
-      //   this.liveAtlas.repack();
+        this.liveAtlas.repack();
       }
 
       // await new Promise((res) => setTimeout(res, 100));
-      try {
-        if (!this.liveAtlas.hasFrame(objectList[i])) {
-          await this.liveAtlas.addFrame(objectList[i]);
+      // try {
+      if (!this.liveAtlas.hasFrame(objectList[i])) {
+        this.liveAtlas.addFrame(objectList[i]).then(() => {
           this.loadedCount += 1;
-        }
-        this.pendingCount -= 1;
+
+          const img = this.add.image(
+            0,
+            0,
+            this.liveAtlas.textureKey,
+            objectList[i]
+          );
+
+          img.setData("velocity", {
+            x: Math.random() * 500,
+            y: Math.random() * 500,
+          });
+
+          this.marios.push(img);
+        })
+      } else {
+        this.loadedCount += 1;
 
         const img = this.add.image(
           0,
           0,
-          this.liveAtlas.textureKey(),
+          this.liveAtlas.textureKey,
           objectList[i]
         );
 
@@ -149,17 +135,30 @@ export default class MainScene extends Phaser.Scene {
         });
 
         this.marios.push(img);
-      } catch (err) {
-        this.failedCount += 1;
-        console.log("err in ", i, err);
       }
+      this.pendingCount -= 1;
+
+
+      // } catch (err) {
+      //   this.failedCount += 1;
+      //   console.log("err in ", i, err);
+      // }
 
       this.pendingCount -= 1;
       this.updateDebugText();
     }
 
     console.log("done");
-    (window as any).saveRT = () => this.liveAtlas.saveToLocalStorage();
+    (window as any).saveRT = async () => {
+      await this.liveAtlas.saveToLocalStorage();
+      await this.reportUsageSize();
+    };
+
+    let removeCount = 0;
+    (window as any).removeNext = () => {
+      this.liveAtlas.removeFrame(objectList[removeCount], true);
+      removeCount += 1;
+    };
     // console.log("saved", await this.liveAtlas.saveToLocalStorage());
 
     // let i = 0;
@@ -288,4 +287,15 @@ export default class MainScene extends Phaser.Scene {
       mario.setData("velocity", velocity);
     }
   };
+
+  private async reportEstimatedQuotaUsage() {
+    const spaceUsed = await this.liveAtlas.getStorageEstimates();
+    const ratio = ((spaceUsed.usage || 0) / (spaceUsed.quota || 0.1));
+    console.log('space', spaceUsed.usage + ' bytes', spaceUsed.quota + ' bytes', (ratio * 100).toFixed(2) + '%');
+  }
+
+  private async reportUsageSize() {
+    const spaceUsed = await this.liveAtlas.getStoredByteSize();
+    console.log('space', spaceUsed + ' bytes');
+  }
 }

@@ -2,13 +2,14 @@ import { trimImageEdges } from "../imageTrimming";
 import { asyncLoader } from "./asyncLoader";
 import { Atlas } from "./ImageFrame";
 import LocalBlobCache from "./LocalBlobCache";
-import ShelfPack from "./ShelfPack";
+import ShelfPack, { Shelf } from "./ShelfPack";
 
 type SerializedAtlas = {
   frames: {
     [id: string]: { x: number; y: number; width: number; height: number };
   };
   image: string;
+  packerData: string;
 };
 
 export class LiveAtlas {
@@ -39,7 +40,7 @@ export class LiveAtlas {
 
   // ------
 
-  public textureKey = () => {
+  public get textureKey(): string {
     return "live-atlas-" + this.id;
   };
 
@@ -272,14 +273,14 @@ export class LiveAtlas {
       }))
       // Sort by taller -> shorter (and wider -> thinner) for a more compact layout
       .sort((a, b) => {
-        if (a.height >= b.height) {
-          return a.width > b.width ? 1 : -1;
+        if (a.height === b.height) {
+          return a.width < b.width ? 1 : -1;
         }
-        return a.height > b.height ? 1 : -1;
+        return a.height < b.height ? 1 : -1;
       });
 
     // Pack!
-    this.packer.clear();
+    this.packer = new ShelfPack(1, 1, { autoResize: true });
     const packed = this.packer.pack(items);
 
     // Preserve the state as we will transfer the current frame data
@@ -289,6 +290,10 @@ export class LiveAtlas {
     // note we're NOT calling `this.resizeTexture` and instead directly manipulating the texture
     this.rt.clear();
     this.rt.resize(this.packer.width, this.packer.height);
+
+
+    // clear frames
+    this.frames = {};
 
     // loop through each packed rect,
     for (const rect of packed) {
@@ -369,7 +374,7 @@ export class LiveAtlas {
     bb.resize(this.rt.width, this.rt.height);
 
     // draw this.rt to backbuffer
-    bb.draw(this.rt);
+    bb.draw(this.rt, 0, 0, 1);
 
     // copy all of `this.rt`'s frames over to the backbuffer
     const ogFrameNames = this.rt.texture.getFrameNames();
@@ -529,6 +534,7 @@ export class LiveAtlas {
     return {
       frames: this.serializeFrames(),
       image: url,
+      packerData: JSON.stringify(this.packer),
     };
   };
 
@@ -546,9 +552,10 @@ export class LiveAtlas {
         y: number;
       };
     },
-    imageUri: string
+    imageUri: string,
+    packerData: string,
   ) => {
-    const key = this.textureKey() + "-import-" + Math.random();
+    const key = this.textureKey + "-import-" + Math.random();
     this.frames = this.deserializeFrames(frames);
 
     console.log("adding frames to rt texture..");
@@ -568,8 +575,27 @@ export class LiveAtlas {
       );
     }
 
+
+    const incomingPacker = JSON.parse(packerData);
+    this.packer = new ShelfPack(1, 1, { autoResize: true });
+    for (const key in incomingPacker) {
+      console.log('putting..', key, incomingPacker[key]);
+      if (key === 'shelves') {
+        for (let i = 0; i < incomingPacker[key].length; i++) {
+          const incomingShelf = incomingPacker[key][i];
+          const shelf = new Shelf(incomingShelf.y, incomingShelf.width, incomingShelf.height);
+          shelf.free = incomingShelf.free;
+          shelf.x = incomingShelf.x;
+          this.packer.shelves.push(shelf);
+        }
+      } else {
+        (this.packer as any)[key] = incomingPacker[key];
+      }
+    }
+
     console.log("importing base64 image..");
     this.scene.textures.addBase64(key, imageUri);
+
 
     return new Promise<void>((res) => {
       this.scene.textures.on(
@@ -586,7 +612,7 @@ export class LiveAtlas {
           this.rt.resize(frame.width, frame.height);
           this.rt.draw(key, 0, 0, 1);
 
-          // Remove the base64 texture since it's now in the RT
+          // Remofve the base64 texture since it's now in the RT
           this.scene.textures.remove(key);
 
           res();
@@ -600,14 +626,14 @@ export class LiveAtlas {
    *
    * @return  {[type]}  [return description]
    */
-  public saveToLocalStorage = async (storageKey = "live-atlas-storage") => {
+  public saveToLocalStorage = async () => {
     this.repack();
 
     const data = await this.exportSerializedData();
     console.log("saving data...", data);
     // const json = JSON.stringify(data);
-    // sessionStorage.setItem(storageKey, json);
-    await LocalBlobCache.saveBlob(storageKey, data);
+    // sessionStorage.setItem(this.id, json);
+    await LocalBlobCache.saveBlob(this.textureKey, data);
     console.log("saved as blob to idb");
   };
 
@@ -616,17 +642,14 @@ export class LiveAtlas {
    *
    * @return  {[type]}  [return description]
    */
-  public loadFromLocalStorage = async (storageKey = "live-atlas-storage") => {
-    // const data = JSON.parse(
-    //   sessionStorage.getItem("live-atlas-storage") || "null"
-    // );
-    const data = await LocalBlobCache.loadBlob(storageKey);
+  public loadFromLocalStorage = async () => {
+    const data = await LocalBlobCache.loadBlob(this.textureKey);
     if (!data) {
       return;
     }
 
     if (data instanceof Blob) {
-      console.log("shouldnt happen");
+      // this should not happen
       return;
     }
 
@@ -636,11 +659,28 @@ export class LiveAtlas {
         return;
       }
       console.log('parseddata', parsedData);
-      await this.importExistingAtlas(parsedData.frames, parsedData.image);
+      console.time('load existing');
+      await this.importExistingAtlas(parsedData.frames, parsedData.image, parsedData.packerData);
+      console.timeEnd('load existing');
     } catch (err) {
       return;
     }
   };
+
+  public getStorageEstimates = async () => {
+    return await navigator.storage.estimate();
+  }
+
+  public getStoredByteSize = async () => {
+    const data = await LocalBlobCache.loadBlob(this.textureKey);
+    if (!data) {
+      return 0;
+    }
+    if (data instanceof Blob) {
+      return data.size;
+    }
+    return data.length;
+  }
 
   /**
    * [showDebugTexture description]
@@ -654,4 +694,13 @@ export class LiveAtlas {
     img.src = src;
     document.body.appendChild(img);
   };
+
+  /**
+   * `LINEAR` for smooth
+   * `NEAREST` for pixelated
+   */
+  public setFilterMode = (mode: Phaser.Textures.FilterMode) => {
+    this.rt.texture.setFilter(mode);
+  }
 }
+

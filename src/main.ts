@@ -4,7 +4,7 @@ import MainScene from './scenes/MainScene';
 setTimeout(()=>{
   new Phaser.Game({
     type: Phaser.CANVAS,
-    pixelArt: true,
+    // pixelArt: true,
     width: 1024,
     height: 768,
     backgroundColor: 0x010101,
