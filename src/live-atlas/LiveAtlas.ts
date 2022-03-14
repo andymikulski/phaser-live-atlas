@@ -15,7 +15,7 @@ type SerializedAtlas = {
 export class LiveAtlas {
   private frames: { [imgUrl: string]: Phaser.Geom.Rectangle } = {};
   private rt: Phaser.GameObjects.RenderTexture;
-  private backbuffer: Phaser.GameObjects.RenderTexture;
+  private backbuffer?: Phaser.GameObjects.RenderTexture;
   private eraserCursor: Phaser.GameObjects.Rectangle;
 
   private packer = new ShelfPack(1, 1, true);
@@ -34,8 +34,6 @@ export class LiveAtlas {
     this.eraserCursor = scene.add
       .rectangle(0, 0, 1, 1, 0xffffff, 1)
       .setVisible(false);
-
-    (window as any).debugRT = this.showDebugTexture;
   }
 
   // ------
@@ -100,31 +98,29 @@ export class LiveAtlas {
     for (let i = 0; i < frame.length; i++) {
       const currentFrame = frame[i];
       if (!currentFrame) {
-        console.log("no current frame index", currentFrame, frame, i);
         continue;
       }
       const frameRect = this.frames[currentFrame];
       if (!frameRect) {
-        console.log("no frame found", currentFrame, this.frames);
         return;
       }
       delete this.frames[currentFrame];
       if (!immediately) {
-        console.log("remove frame but not now");
         return;
       }
 
-      console.log("removing...", frameRect, this.packer.bins);
       // if we're immediately removing this from the texture, we need to actually erase the image data
       // and the frame. (This happens 'passively' when `repack` is called.)
       this.eraserCursor.setPosition(frameRect.x, frameRect.y);
       this.eraserCursor.setOrigin(0, 0);
       this.eraserCursor.setSize(frameRect.width, frameRect.height);
       this.rt.erase(this.eraserCursor);
-      // this.rt.draw(this.eraserCursor);
 
       // Free space from the packer to be used in the future
-      this.packer.unref(this.packer.getBin(currentFrame));
+      const bin = this.packer.getBin(currentFrame);
+      if (bin) {
+        this.packer.unref(bin);
+      }
     }
 
     // Ensure repacks now that we've added a new item
@@ -145,9 +141,12 @@ export class LiveAtlas {
 
     for (let i = 0; i < textureKey.length; i++) {
       const currentFrame = textureKey[i];
-      if (!currentFrame || this.frames[currentFrame]) {
+      if (!currentFrame) {
         continue;
       }
+
+      // set this frame to render nothing at first - when it's loaded it will automatically update
+      this.maybeRegisterEmptyFrame(currentFrame);
 
       // load `textureKey` as an image/texture
       try {
@@ -156,7 +155,6 @@ export class LiveAtlas {
           this.scene.load.image(currentFrame, currentFrame)
         );
       } catch (err) {
-        console.log("Error loading frame..", currentFrame, err);
         continue;
       }
 
@@ -202,10 +200,10 @@ export class LiveAtlas {
   private cursor?: Phaser.GameObjects.Rectangle;
   private packNewFrame = (
     key: string,
-    dimensions: null | {
+    dimensions: {
       width: number;
       height: number;
-      trim: {
+      trim: null | {
         x: number;
         y: number;
         originalWidth: number;
@@ -227,8 +225,12 @@ export class LiveAtlas {
           key
         );
 
-    const halfPadding = (this.framePadding / 2) | 0;
+    if (!packedFrame) {
+      console.warn("Could not pack new frame with key: " + key);
+      return;
+    }
 
+    const halfPadding = (this.framePadding / 2) | 0;
     this.frames[key] = new Phaser.Geom.Rectangle(
       packedFrame.x,
       packedFrame.y,
@@ -245,24 +247,32 @@ export class LiveAtlas {
       this.resizeTexture(this.packer.width, this.packer.height);
     }
 
-    // When drawing we still need to take trim into account
+    // When drawing to the RT, we still need to take trim into account
     // (The texture at `key` has not been modified - we've only examined it for transparency.)
-    this.rt.draw(
-      key,
-      packedFrame.x - dimensions.trim.x,
-      packedFrame.y - dimensions.trim.y
-    );
+    const trimX = dimensions?.trim?.x || 0;
+    const trimY = dimensions?.trim?.y || 0;
+    this.rt.draw(key, packedFrame.x - trimX, packedFrame.y - trimY);
 
     // The frame itself here already takes the trim and everything into account,
     // so we can insert it "as-is".
-    this.rt.texture.add(
-      key,
-      0,
-      packedFrame.x,
-      packedFrame.y,
-      packedFrame.width,
-      packedFrame.height
-    );
+    const existingFrame = this.rt.texture.get(key);
+    if (existingFrame) {
+      existingFrame.setSize(
+        packedFrame.width,
+        packedFrame.height,
+        packedFrame.x,
+        packedFrame.y
+      );
+    } else {
+      this.rt.texture.add(
+        key,
+        0,
+        packedFrame.x,
+        packedFrame.y,
+        packedFrame.width,
+        packedFrame.height
+      );
+    }
 
     this.scene.textures.remove(key);
 
@@ -272,6 +282,16 @@ export class LiveAtlas {
 
   private requiresRepack = false;
 
+  private maybeRegisterEmptyFrame(frame: string) {
+    const existingFrame = this.rt.texture.has(frame);
+    if (existingFrame) {
+      return;
+    }
+
+    this.frames[frame] = new Phaser.Geom.Rectangle(0, 0, 1, 1);
+    this.rt.texture.add(frame, 0, 0, 0, 1, 1);
+  }
+
   /**
    * heavy!
    *
@@ -280,7 +300,6 @@ export class LiveAtlas {
   public repack() {
     // This has already been repacked before
     if (!this.requiresRepack) {
-      console.log("doesnt need repack, ignoring");
       return;
     }
 
@@ -330,7 +349,6 @@ export class LiveAtlas {
 
       // Add frame to RT
       let frame = this.rt.texture.get(id);
-      // console.log("putting frame...", rect.x, rect.y, rect.width, rect.height);
       if (!frame) {
         frame = this.rt.texture.add(
           id.toString(),
@@ -340,7 +358,6 @@ export class LiveAtlas {
           rect.width,
           rect.height
         );
-        console.log("frame added...", id.toString());
       }
 
       // frame.setTrim(rect.width, rect.height, 0, 0, rect.width, rect.height);
@@ -368,7 +385,6 @@ export class LiveAtlas {
     this.preserveTextureState();
     this.rt.clear();
     this.rt.resize(width, height);
-    console.log("setting rt to size..", width, height);
     this.restoreTextureState();
     this.freePreservedState();
   };
@@ -449,8 +465,8 @@ export class LiveAtlas {
 
     // Remove any applied texture frames to free memory
     const existingFrames = this.backbuffer.texture.getFrameNames();
-    for (let i = 0; i < existingFrames.length; i++) {
-      this.backbuffer.texture.remove(existingFrames[i]);
+    for (const frame of existingFrames) {
+      this.backbuffer.texture.remove(frame);
     }
 
     // destroy backbuffer? maybe? check perf to see if it's worth it to pool this instance
@@ -561,6 +577,8 @@ export class LiveAtlas {
       this.trimCanvas.draw(0, 0, imgDataSource);
       url = this.trimCanvas.canvas.toDataURL();
       url = imgDataSource.toDataURL();
+    } else {
+      throw new Error("WebGL serialization not yet supported!");
     }
 
     return {
@@ -587,8 +605,6 @@ export class LiveAtlas {
   ) => {
     const key = this.textureKey + "-import-" + Math.random();
     this.frames = this.deserializeFrames(frames);
-
-    console.log("adding frames to rt texture..");
 
     for (const frameUrl in this.frames) {
       const frame = this.frames[frameUrl];
@@ -620,23 +636,28 @@ export class LiveAtlas {
           shelf.x = incomingShelf.x;
           this.packer.shelves.push(shelf);
         }
-      } else {
-        (this.packer as any)[key] = incomingPacker[key];
       }
     }
 
-    console.log("importing base64 image..");
     this.scene.textures.addBase64(key, imageUri);
 
-    return new Promise<void>((res) => {
+    return new Promise<void>((res, rej) => {
       this.scene.textures.on(
         Phaser.Textures.Events.LOAD,
         (key: string, texture: Phaser.Textures.Texture) => {
-          console.log("inside texture load...");
+          // Phaser vaguely types `texture.frames` as `object`. We augment the types here accordingly.
+          // eslint-disable-next-line
+          const textureFrames = texture.frames as {
+            [key: string]: Phaser.Textures.Frame;
+          };
+          const frame = textureFrames[texture.firstFrame];
 
-          const frame = (
-            texture.frames as { [key: string]: Phaser.Textures.Frame }
-          )[texture.firstFrame];
+          if (!frame) {
+            rej(
+              "LiveAtlas : error when importing serialized texture! : could not find base frame."
+            );
+            return;
+          }
 
           // Scale the render texture and populate it with graphics
           this.rt.clear();
@@ -756,4 +777,24 @@ export class LiveAtlas {
     );
     return this;
   };
+
+  public make = {
+    image: (x: number, y: number, frame: string): Phaser.GameObjects.Image => {
+      // Register `frame` as a texture on this frame immediately
+      // (This prevents `frame missing` warnings in console.)
+      this.maybeRegisterEmptyFrame(frame);
+
+      // The actual image to be returned. Note at this point the frame is either loaded or pointing
+      // at a 1x1 transparent pixel.
+      const img = this.scene.add.image(x, y, this.textureKey, frame);
+
+      // Actually load the frame - if necessary - and then ensure that `img` has proper sizing/orientation.
+      this.addFrame(frame).then(() => {
+        img?.setSizeToFrame(img.frame);
+        img?.setOriginFromFrame();
+      });
+
+      return img;
+    },
+  } as const;
 }
