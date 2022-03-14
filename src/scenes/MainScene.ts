@@ -18,6 +18,7 @@ export default class MainScene extends Phaser.Scene {
   private liveAtlas: LiveAtlas;
 
   create = () => {
+    this.cameras.main.setZoom(4).centerOn(0,0);
     this.topLabel = this.add.text(0, 0, "0 in atlas - 0 failed - 0 pending", {
       color: "#fff",
       fontSize: "16px",
@@ -36,7 +37,9 @@ export default class MainScene extends Phaser.Scene {
 
     this.liveAtlas.setPixelArt(true);
 
-    // this.liveAtlas.addFrame('https://i.imgur.com/nKgMvuj.png');
+    this.liveAtlas.addFrame("https://cdn.gather.town/storage.googleapis.com/gather-town.appspot.com/uploads/oxrhEtb3sV7VutbQ/AQ9yOcyOnUkIV70MPl8LcL").then(()=>{
+      this.liveAtlas.removeFrame("https://cdn.gather.town/storage.googleapis.com/gather-town.appspot.com/uploads/oxrhEtb3sV7VutbQ/AQ9yOcyOnUkIV70MPl8LcL", true);
+    });
 
     console.time("load existing from storage");
     this.liveAtlas.loadFromLocalStorage().then(() => {

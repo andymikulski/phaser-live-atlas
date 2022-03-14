@@ -1,5 +1,5 @@
 import { trimImageEdges } from "./lib/imageTrimming";
-import { asyncLoader } from "./lib/asyncLoader";
+import { loadIntoPhaser as asyncLoader } from "./lib/asyncLoader";
 // import { Atlas } from "./AtlasTypes";
 import LocalBlobCache from "./lib/LocalBlobCache";
 import ShelfPack, { Shelf } from "./lib/ShelfPack";
@@ -72,7 +72,6 @@ export class LiveAtlas {
       .getImageData(0, 0, src.width, src.height);
   };
   private trimFrame = (frameKey: string) => {
-    // const frame = this.rt.texture.get(frameKey);
     const src = this.rt.scene.textures.get(frameKey).getSourceImage();
 
     if (src instanceof Phaser.GameObjects.RenderTexture) {
@@ -194,10 +193,16 @@ export class LiveAtlas {
     }
   }
 
+  /**
+   * Ensures there is at least this many pixels between frames.
+   * (Gaps in the atlas may mean that there are more than `framePadding` pixels in some cases.)
+   */
+  private framePadding = 4;
+
   private cursor?: Phaser.GameObjects.Rectangle;
   private packNewFrame = (
     key: string,
-    dimensions: {
+    dimensions: null | {
       width: number;
       height: number;
       trim: {
@@ -210,17 +215,25 @@ export class LiveAtlas {
       };
     }
   ) => {
-    const packedFrame = this.packer.packOne(
-      dimensions.width + 2,
-      dimensions.height + 2,
-      key
-    );
+    const packedFrame = dimensions?.trim
+      ? this.packer.packOne(
+          dimensions.trim.trimmedWidth + this.framePadding,
+          dimensions.trim.trimmedHeight + this.framePadding,
+          key
+        )
+      : this.packer.packOne(
+          dimensions.width + this.framePadding,
+          dimensions.height + this.framePadding,
+          key
+        );
+
+    const halfPadding = (this.framePadding / 2) | 0;
 
     this.frames[key] = new Phaser.Geom.Rectangle(
       packedFrame.x,
       packedFrame.y,
-      packedFrame.width,
-      packedFrame.height
+      packedFrame.width - halfPadding,
+      packedFrame.height - halfPadding
     );
 
     // if `this.rt`'s dimensions do not contain the total packed rects determined above,
@@ -232,20 +245,16 @@ export class LiveAtlas {
       this.resizeTexture(this.packer.width, this.packer.height);
     }
 
-    // if (!this.cursor) {
-    //   this.cursor = this.rt.scene.add.rectangle(0, 0, 1, 1).setOrigin(0, 0);
-    // }
-    // this.cursor.setFillStyle(0xffffff * Math.random());
-    // this.cursor.setPosition(packedFrame.x, packedFrame.y);
-    // this.cursor.setSize(packedFrame.width, packedFrame.height);
-    // draw the image data to `this.rt` at its packed rect location
-    // this.rt.draw(this.cursor, packedFrame.x, packedFrame.y);
+    // When drawing we still need to take trim into account
+    // (The texture at `key` has not been modified - we've only examined it for transparency.)
     this.rt.draw(
       key,
       packedFrame.x - dimensions.trim.x,
-      packedFrame.y - dimensions.trim.y + 1
+      packedFrame.y - dimensions.trim.y
     );
-    // this.rt.draw(this.cursor);
+
+    // The frame itself here already takes the trim and everything into account,
+    // so we can insert it "as-is".
     this.rt.texture.add(
       key,
       0,
