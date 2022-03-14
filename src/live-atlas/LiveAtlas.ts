@@ -1,8 +1,8 @@
-import { trimImageEdges } from "../imageTrimming";
-import { asyncLoader } from "./asyncLoader";
-import { Atlas } from "./ImageFrame";
-import LocalBlobCache from "./LocalBlobCache";
-import ShelfPack, { Shelf } from "./ShelfPack";
+import { trimImageEdges } from "./lib/imageTrimming";
+import { asyncLoader } from "./lib/asyncLoader";
+// import { Atlas } from "./AtlasTypes";
+import LocalBlobCache from "./lib/LocalBlobCache";
+import ShelfPack, { Shelf } from "./lib/ShelfPack";
 
 type SerializedAtlas = {
   frames: {
@@ -18,7 +18,7 @@ export class LiveAtlas {
   private backbuffer: Phaser.GameObjects.RenderTexture;
   private eraserCursor: Phaser.GameObjects.Rectangle;
 
-  private packer = new ShelfPack(1, 1, { autoResize: true });
+  private packer = new ShelfPack(1, 1, true);
 
   public get texture(): Phaser.GameObjects.RenderTexture {
     return this.rt;
@@ -42,7 +42,7 @@ export class LiveAtlas {
 
   public get textureKey(): string {
     return "live-atlas-" + this.id;
-  };
+  }
 
   private backbufferKey = () => {
     return "live-atlas-backbuffer-" + this.id;
@@ -52,6 +52,7 @@ export class LiveAtlas {
     return !!this.frames[frame];
   };
 
+  private trimCanvas?: Phaser.Textures.CanvasTexture;
   private getImageDataFromSource = (
     src: HTMLImageElement | HTMLCanvasElement
   ) => {
@@ -70,9 +71,6 @@ export class LiveAtlas {
       .getContext()
       .getImageData(0, 0, src.width, src.height);
   };
-
-  private trimCanvas?: Phaser.Textures.CanvasTexture;
-
   private trimFrame = (frameKey: string) => {
     // const frame = this.rt.texture.get(frameKey);
     const src = this.rt.scene.textures.get(frameKey).getSourceImage();
@@ -103,7 +101,7 @@ export class LiveAtlas {
     for (let i = 0; i < frame.length; i++) {
       const currentFrame = frame[i];
       if (!currentFrame) {
-        console.log("no current frame index");
+        console.log("no current frame index", currentFrame, frame, i);
         continue;
       }
       const frameRect = this.frames[currentFrame];
@@ -129,6 +127,9 @@ export class LiveAtlas {
       // Free space from the packer to be used in the future
       this.packer.unref(this.packer.getBin(currentFrame));
     }
+
+    // Ensure repacks now that we've added a new item
+    this.setRepackFlag();
   }
 
   /**
@@ -255,7 +256,12 @@ export class LiveAtlas {
     );
 
     this.scene.textures.remove(key);
+
+    // Ensure repacks now that we've added a new item
+    this.setRepackFlag();
   };
+
+  private requiresRepack = false;
 
   /**
    * heavy!
@@ -263,6 +269,12 @@ export class LiveAtlas {
    * uses binpacking on the registered frames and then redraws the underlying render texture for optimal sizing
    */
   public repack() {
+    // This has already been repacked before
+    if (!this.requiresRepack) {
+      console.log("doesnt need repack, ignoring");
+      return;
+    }
+
     // Use existing frames in memory
     const items = Object.keys(this.frames)
       // Convert them to a simple format for the packer
@@ -280,7 +292,7 @@ export class LiveAtlas {
       });
 
     // Pack!
-    this.packer = new ShelfPack(1, 1, { autoResize: true });
+    this.packer = new ShelfPack(1, 1, true);
     const packed = this.packer.pack(items);
 
     // Preserve the state as we will transfer the current frame data
@@ -290,7 +302,6 @@ export class LiveAtlas {
     // note we're NOT calling `this.resizeTexture` and instead directly manipulating the texture
     this.rt.clear();
     this.rt.resize(this.packer.width, this.packer.height);
-
 
     // clear frames
     this.frames = {};
@@ -329,7 +340,17 @@ export class LiveAtlas {
 
     // finally, free the preserved state entirely
     this.freePreservedState();
+
+    // Update `repack` flag to track if any changes are ever made here
+    this.clearRepackFlag();
   }
+
+  private setRepackFlag = () => {
+    this.requiresRepack = true;
+  };
+  private clearRepackFlag = () => {
+    this.requiresRepack = false;
+  };
 
   /**
    * resizes the internal texture, ensuring image data remains the same afterwards
@@ -345,8 +366,6 @@ export class LiveAtlas {
 
   /**
    * [getBackbuffer description]
-   *
-   * @return  {[type]}  [return description]
    */
   private getBackbuffer = () => {
     if (!this.backbuffer) {
@@ -394,8 +413,6 @@ export class LiveAtlas {
 
   /**
    * [restoreTextureState description]
-   *
-   * @return  {[type]}  [return description]
    */
   private restoreTextureState = () => {
     // if no backbuffer, exit
@@ -412,8 +429,6 @@ export class LiveAtlas {
 
   /**
    * [freePreservedState description]
-   *
-   * @return  {[type]}  [return description]
    */
   private freePreservedState = () => {
     // if no backbuffer, exit
@@ -458,8 +473,6 @@ export class LiveAtlas {
 
   /**
    * [serializeFrames description]
-   *
-   * @return  {[type]}  [return description]
    */
   private serializeFrames = () => {
     return Object.keys(this.frames).reduce<{
@@ -519,8 +532,6 @@ export class LiveAtlas {
 
   /**
    * [exportData description]
-   *
-   * @return  {[type]}  [return description]
    */
   public exportSerializedData = async (): Promise<SerializedAtlas> => {
     // this.repack();
@@ -552,8 +563,6 @@ export class LiveAtlas {
 
   /**
    * [importExistingAtlas description]
-   *
-   * @return  {[type]}  [return description]
    */
   public importExistingAtlas = async (
     frames: {
@@ -565,7 +574,7 @@ export class LiveAtlas {
       };
     },
     imageUri: string,
-    packerData: string,
+    packerData: string
   ) => {
     const key = this.textureKey + "-import-" + Math.random();
     this.frames = this.deserializeFrames(frames);
@@ -587,14 +596,17 @@ export class LiveAtlas {
       );
     }
 
-
     const incomingPacker = JSON.parse(packerData);
-    this.packer = new ShelfPack(1, 1, { autoResize: true });
+    this.packer = new ShelfPack(1, 1, true);
     for (const key in incomingPacker) {
-      if (key === 'shelves') {
+      if (key === "shelves") {
         for (let i = 0; i < incomingPacker[key].length; i++) {
           const incomingShelf = incomingPacker[key][i];
-          const shelf = new Shelf(incomingShelf.y, incomingShelf.width, incomingShelf.height);
+          const shelf = new Shelf(
+            incomingShelf.y,
+            incomingShelf.width,
+            incomingShelf.height
+          );
           shelf.free = incomingShelf.free;
           shelf.x = incomingShelf.x;
           this.packer.shelves.push(shelf);
@@ -606,7 +618,6 @@ export class LiveAtlas {
 
     console.log("importing base64 image..");
     this.scene.textures.addBase64(key, imageUri);
-
 
     return new Promise<void>((res) => {
       this.scene.textures.on(
@@ -625,6 +636,7 @@ export class LiveAtlas {
 
           // Remofve the base64 texture since it's now in the RT
           this.scene.textures.remove(key);
+          this.setRepackFlag();
 
           res();
         }
@@ -633,25 +645,22 @@ export class LiveAtlas {
   };
 
   /**
-   * Serialize atlas and saves it to the
-   *
-   * @return  {[type]}  [return description]
+   * Serialize atlas and saves it to the local machine.
+   * Uses IndexedDB under the hood, meaning space concerns shouldn't really be an issue.
    */
   public saveToLocalStorage = async () => {
-    // this.repack();
+    // Try to repack in case some space can be saved
+    this.repack();
 
+    // Serialize the data to strings
     const data = await this.exportSerializedData();
-    console.log("saving data...", data);
-    // const json = JSON.stringify(data);
-    // sessionStorage.setItem(this.id, json);
+
+    // Save the data as a `Blob` to indexeddb. (This allow sus to store files of 500+ mb)
     await LocalBlobCache.saveBlob(this.textureKey, data);
-    console.log("saved as blob to idb");
   };
 
   /**
    * [loadFromLocalStorage description]
-   *
-   * @return  {[type]}  [return description]
    */
   public loadFromLocalStorage = async () => {
     const data = await LocalBlobCache.loadBlob(this.textureKey);
@@ -669,19 +678,42 @@ export class LiveAtlas {
       if (!parsedData || !parsedData.frames || !parsedData.image) {
         return;
       }
-      console.time('load existing');
-      await this.importExistingAtlas(parsedData.frames, parsedData.image, parsedData.packerData);
-      console.timeEnd('load existing');
+      await this.importExistingAtlas(
+        parsedData.frames,
+        parsedData.image,
+        parsedData.packerData
+      );
     } catch (err) {
       return;
     }
+
+    this.setRepackFlag();
   };
 
-  public getStorageEstimates = async () => {
-    return await navigator.storage.estimate();
+  /**
+   * Queries the browser to determine how much storage space is still available for IndexedDB.
+   *
+   * Note these values reflect the _browser's_ overall storage capability, and NOT what is
+   * currently only in use by this LiveAtlas.
+   *
+   * If you want to know the size of _this_ atlas, use `getStoredByteSize` instead.
+   */
+  public async getStorageQuotaEstimates() {
+    const spaceUsed = await navigator.storage.estimate();
+    const ratio = (spaceUsed.usage || 0) / (spaceUsed.quota || 0.1);
+
+    return {
+      usedSize: spaceUsed.usage,
+      maxSize: spaceUsed.quota,
+      percent: ratio,
+    };
   }
 
-  public getStoredByteSize = async () => {
+  /**
+   * Returns how much data is currently being stored by this atlas.
+   * Note that this measures the _stored_ data and will return `0` if no data has not yet been saved.
+   */
+  public async getStoredByteSize() {
     const data = await LocalBlobCache.loadBlob(this.textureKey);
     if (!data) {
       return 0;
@@ -694,8 +726,6 @@ export class LiveAtlas {
 
   /**
    * [showDebugTexture description]
-   *
-   * @return  {[type]}  [return description]
    */
   public showDebugTexture = async () => {
     const data = await this.exportSerializedData();
@@ -715,6 +745,6 @@ export class LiveAtlas {
         ? Phaser.Textures.FilterMode.NEAREST
         : Phaser.Textures.FilterMode.LINEAR
     );
-  }
+    return this;
+  };
 }
-

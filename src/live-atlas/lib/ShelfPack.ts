@@ -1,3 +1,29 @@
+/**
+ * Modified version of `mapbox/shelf-pack` to be a little more tailored to our needs.
+ * Find the original here: https://github.com/mapbox/shelf-pack
+ *
+ * -----------------------------------------
+ * Original `shelf-pack` license:
+ *
+ * ISC License
+ *
+ * Copyright (c) 2017, Mapbox
+ *
+ * Permission to use, copy, modify, and/or distribute this software for any purpose with or without
+ * fee is hereby granted, provided that the above copyright notice and this permission notice appear
+ * in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE
+ * INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE
+ * LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING
+ * FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS
+ * ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ *
+ */
+
+/**
+ * Used to denote spaces in the atlas that are free or occupied with content
+ */
 export class Bin {
   public refcount: number = 0;
 
@@ -12,8 +38,6 @@ export class Bin {
    * @param  {number}         height       Height of the bin
    * @param  {number}         [maxw]  Max width of the bin (defaults to `w` if not provided)
    * @param  {number}         [maxh]  Max height of the bin (defaults to `h` if not provided)
-   * @example
-   * var bin = new Bin('a', 0, 0, 12, 16);
    */
   constructor(
     public id: string | number,
@@ -35,6 +59,9 @@ export class Bin {
   }
 }
 
+/**
+ * List of `Bin`s from left to right, used to stack bins atop each other
+ */
 export class Shelf {
   public free = 0;
   public x = 0;
@@ -58,16 +85,11 @@ export class Shelf {
 
   /**
    * Allocate a single bin into the shelf.
-   *
-   * @private
    * @param   {number}         w   Width of the bin to allocate
    * @param   {number}         h   Height of the bin to allocate
    * @param   {number|string}  id  Unique id of the bin to allocate
-   * @returns {Bin}            Bin object with `id`, `x`, `y`, `w`, `h` properties, or `null` if allocation failed
-   * @example
-   * shelf.alloc(12, 16, 'a');
    */
-  alloc = (w: number, h: number, id: number | string) => {
+  alloc = (w: number, h: number, id: number | string): Bin => {
     if (w > this.free || h > this.height) {
       return null;
     }
@@ -79,25 +101,21 @@ export class Shelf {
 
   /**
    * Resize the shelf.
-   *
-   * @private
    * @param   {number}  w  Requested new width of the shelf
-   * @returns {boolean}    true
-   * @example
-   * shelf.resize(512);
    */
   resize = (w: number) => {
     this.free += w - this.width;
     this.width = w;
-    return true;
   };
 }
 
+/**
+ * Main class for using the ShelfPack algorithm.
+ * Tracks the number of
+ */
 export default class ShelfPack {
-  public autoResize = true;
   public shelves: Shelf[] = [];
   public freebins: Bin[] = [];
-  public stats: { [key: number]: number } = {};
   public bins: { [id: number | string]: Bin } = {};
 
   /**
@@ -107,30 +125,28 @@ export default class ShelfPack {
    * http://clb.demon.fi/files/RectangleBinPack.pdf
    *
    * @class  ShelfPack
-   * @param  {number}  [w=64]  Initial width of the sprite
-   * @param  {number}  [h=64]  Initial width of the sprite
+   * @param  {number}  [w=64]  Initial width of the packer
+   * @param  {number}  [h=64]  Initial width of the packer
    * @param  {Object}  [options]
-   * @param  {boolean} [options.autoResize=false]  If `true`, the sprite will automatically grow
+   * @param  {boolean} [options.autoResize=false]  If `true`, the packer will automatically grow
    * @example
-   * var sprite = new ShelfPack(64, 64, { autoResize: false });
+   * var packer = new ShelfPack(64, 64, { autoResize: false });
    */
   constructor(
     public width: number,
     public height: number,
-    public options?: { autoResize?: boolean }
+    public autoResize = true
   ) {
-    this.options = options || {};
     this.width = width || 0;
     this.height = height || 0;
-    this.autoResize = !!options.autoResize;
+    this.autoResize = autoResize;
     this.shelves = [];
     this.freebins = [];
-    this.stats = {};
     this.bins = {};
   }
 
   /**
-   * Batch pack multiple bins into the sprite.
+   * Batch pack multiple bins into the packer.
    *
    * @param   {Object[]} bins       Array of requested bins - each object should have `width`, `height` (or `w`, `h`) properties
    * @param   {number}   bins[].width   Requested bin width
@@ -144,7 +160,7 @@ export default class ShelfPack {
    *     { id: 2, w: 12, h: 16 },
    *     { id: 3, w: 12, h: 24 }
    * ];
-   * var results = sprite.pack(bins, { inPlace: false });
+   * var results = packer.pack(bins, { inPlace: false });
    */
   pack = (
     bins: { id: string | number; width: number; height: number }[]
@@ -177,7 +193,7 @@ export default class ShelfPack {
   };
 
   /**
-   * Pack a single bin into the sprite.
+   * Pack a single bin into the packer.
    *
    * Each bin will have a unique identitifer.
    * If no identifier is supplied in the `id` parameter, one will be created.
@@ -193,7 +209,7 @@ export default class ShelfPack {
    * @param    {number|string}  [id]   Unique identifier for this bin, (if unsupplied, assume it's a new bin and create an id)
    * @returns  {Bin}            Bin object with `id`, `x`, `y`, `w`, `h` properties, or `null` if allocation failed
    * @example
-   * var results = sprite.packOne(12, 16, 'a');
+   * var results = packer.packOne(12, 16, 'a');
    */
   packOne = (w: number, h: number, id: string | number): Bin => {
     var best = { freebin: -1, shelf: -1, waste: Infinity },
@@ -267,7 +283,7 @@ export default class ShelfPack {
     if (best.shelf !== -1) {
       return this.allocShelf(best.shelf, w, h, id);
     }
-  
+
     // No free bins or shelves.. add shelf..
     if (h <= this.height - y && w <= this.width) {
       shelf = new Shelf(y, this.width, h);
@@ -275,9 +291,9 @@ export default class ShelfPack {
     }
 
     // No room for more shelves..
-    // If `autoResize` option is set, grow the sprite as follows:
-    //  * double whichever sprite dimension is smaller (`w1` or `h1`)
-    //  * if sprite dimensions are equal, grow width before height
+    // If `autoResize` option is set, grow the packer as follows:
+    //  * double whichever packer dimension is smaller (`w1` or `h1`)
+    //  * if packer dimensions are equal, grow width before height
     //  * accomodate very large bin requests (big `w` or `h`)
     if (this.autoResize) {
       var h1, h2, w1, w2;
@@ -311,7 +327,7 @@ export default class ShelfPack {
    * @param    {number|string}  id     Unique identifier for this bin
    * @returns  {Bin}            Bin object with `id`, `x`, `y`, `w`, `h` properties
    * @example
-   * var bin = sprite.allocFreebin(0, 12, 16, 'a');
+   * var bin = packer.allocFreebin(0, 12, 16, 'a');
    */
   allocFreebin = (
     index: number,
@@ -339,7 +355,7 @@ export default class ShelfPack {
    * @param    {number|string}  id     Unique identifier for this bin
    * @returns  {Bin}            Bin object with `id`, `x`, `y`, `w`, `h` properties
    * @example
-   * var results = sprite.allocShelf(0, 12, 16, 'a');
+   * var results = packer.allocShelf(0, 12, 16, 'a');
    */
   allocShelf = (index: number, w: number, h: number, id: number | string) => {
     var shelf = this.shelves[index];
@@ -350,7 +366,7 @@ export default class ShelfPack {
   };
 
   /**
-   * Shrink the width/height of the sprite to the bare minimum.
+   * Shrink the width/height of the packer to the bare minimum.
    * Since shelf-pack doubles first width, then height when running out of shelf space
    * this can result in fairly large unused space both in width and height if that happens
    * towards the end of bin packing.
@@ -376,7 +392,7 @@ export default class ShelfPack {
    * @param    {number|string}  id  Unique identifier for this bin,
    * @returns  {Bin}            The requested bin, or undefined if not yet packed
    * @example
-   * var b = sprite.getBin('a');
+   * var b = packer.getBin('a');
    */
   getBin = (id: string | number) => {
     return this.bins[id];
@@ -388,16 +404,11 @@ export default class ShelfPack {
    * @param    {Bin}     bin  Bin instance
    * @returns  {number}  New refcount of the bin
    * @example
-   * var bin = sprite.getBin('a');
-   * sprite.ref(bin);
+   * var bin = packer.getBin('a');
+   * packer.ref(bin);
    */
   ref = (bin: Bin) => {
-    if (++bin.refcount === 1) {
-      // a new Bin.. record height in stats historgram..
-      var h = bin.height;
-      this.stats[h] = (this.stats[h] | 0) + 1;
-    }
-
+    bin.refcount += 1;
     return bin.refcount;
   };
 
@@ -408,8 +419,8 @@ export default class ShelfPack {
    * @param    {Bin}     bin  Bin instance
    * @returns  {number}  New refcount of the bin
    * @example
-   * var bin = sprite.getBin('a');
-   * sprite.unref(bin);
+   * var bin = packer.getBin('a');
+   * packer.unref(bin);
    */
   unref = (bin: Bin) => {
     if (bin.refcount === 0) {
@@ -417,7 +428,6 @@ export default class ShelfPack {
     }
 
     if (--bin.refcount === 0) {
-      this.stats[bin.height]--;
       delete this.bins[bin.id];
       this.freebins.push(bin);
     }
@@ -426,28 +436,27 @@ export default class ShelfPack {
   };
 
   /**
-   * Clear the sprite.  Resets everything and resets statistics.
+   * Clear the packer.  Resets everything and resets statistics.
    *
    * @example
-   * sprite.clear();
+   * packer.clear();
    */
   clear = () => {
     this.shelves = [];
     this.freebins = [];
-    this.stats = {};
     this.bins = {};
     this.width = 0;
     this.height = 0;
   };
 
   /**
-   * Resize the sprite.
+   * Resize the packer.
    *
-   * @param   {number}  w  Requested new sprite width
-   * @param   {number}  h  Requested new sprite height
+   * @param   {number}  w  Requested new packer width
+   * @param   {number}  h  Requested new packer height
    * @returns {boolean} `true` if resize succeeded, `false` if failed
    * @example
-   * sprite.resize(256, 256);
+   * packer.resize(256, 256);
    */
   resize = (w: number, h: number, usePOT?: boolean) => {
     if (usePOT) {
