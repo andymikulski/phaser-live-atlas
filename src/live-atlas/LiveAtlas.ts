@@ -170,31 +170,34 @@ export class LiveAtlas {
       try {
         await asyncLoader(currentFrame, this.scene.load.image(currentFrame, currentFrame));
       } catch (err) {
+        console.log("error loading image", err);
         continue;
       }
 
-      this.trimFrame(currentFrame);
-
       // get its dimensions (somehow..)
-      const img = this.scene.textures.getFrame(currentFrame);
-      const imgTexture = this.scene.textures.get(currentFrame);
+      const frame = this.rt.scene.textures.getFrame(currentFrame);
+      const imgTexture = this.rt.scene.textures.get(currentFrame);
+
+      if (!frame) {
+        // debugger;
+        // throw new Error('Frame not found after importing....');
+      }
 
       const trimFraming = this.trimFrame(currentFrame);
       if (trimFraming) {
-        img.setTrim(
-          img.cutWidth,
-          img.cutHeight,
+        frame.setTrim(
+          frame.cutWidth,
+          frame.cutHeight,
           trimFraming.x,
           trimFraming.y,
           trimFraming.trimmedWidth,
           trimFraming.trimmedHeight,
         );
-        // img.updateUVs();
       }
 
       const dimensions = {
-        width: img.width,
-        height: img.height,
+        width: frame.width,
+        height: frame.height,
         trim: trimFraming,
       };
 
@@ -520,11 +523,8 @@ export class LiveAtlas {
   };
 
   /**
-   * [deserializeFrames description]
-   *
-   * @param   {[type]}  incomingFrames  [incomingFrames description]
-   *
-   * @return  {[type]}                  [return description]
+   * Converts serialized frames (POJOs) into `Phaser.Geom.Rectangle`s.
+   * This is primarily used when importing `frames`, probably from a serialized atlas.
    */
   private deserializeFrames = (incomingFrames: {
     [imageUrl: string]: {
@@ -545,13 +545,16 @@ export class LiveAtlas {
   };
 
   /**
-   * [exportData description]
+   * Seri
    */
   public exportSerializedData = async (): Promise<SerializedAtlas> => {
-    // this.repack();
-
     const imgDataSource = this.rt.texture.getSourceImage();
     let url;
+
+    /**
+     * Canvas rendering ---
+     * Uses a temporary canvas to effectively take a snapshot of the RenderTexture for this atlas.
+     */
     if (imgDataSource instanceof HTMLCanvasElement) {
       if (!this.trimCanvas) {
         this.trimCanvas = this.rt.scene.textures.createCanvas(
@@ -570,6 +573,11 @@ export class LiveAtlas {
       this.trimCanvas.setSize(1, 1);
       this.trimCanvas.clear();
     } else {
+      /**
+       * WebGl rendering ---
+       * Currently not yet implemented. Will need to sample the RT framebuffer and probably do
+       * a similar canvas dance as above.
+       */
       throw new Error("WebGL serialization not yet supported!");
     }
 
@@ -616,6 +624,11 @@ export class LiveAtlas {
           shelf.free = incomingShelf.free;
           shelf.x = incomingShelf.x;
           this.packer.shelves.push(shelf);
+        }
+      } else {
+        if (this.packer.hasOwnProperty(key)) {
+          // @ts-expect-error
+          this.packer[key] = incomingPacker[key];
         }
       }
     }
@@ -693,10 +706,24 @@ export class LiveAtlas {
       // at a 1x1 transparent pixel.
       const img = this.scene.add.image(x, y, this.textureKey, frame);
 
+      // Wee bit of a hack to track if the origin of this object has been
+      img.setOrigin(-1, -1);
+
       // Actually load the frame - if necessary - and then ensure that `img` has proper sizing/orientation.
       this.addFrame(frame, true).then(function () {
+        const imgOriginX = img.originX;
+        const imgOriginY = img.originY;
+
         img.setSizeToFrame(img.frame);
-        img.setOriginFromFrame();
+        if (imgOriginX !== -1) {
+          // If the origin is still at -1, that means a dev hasn't touched it,
+          // and we can roll forward with the default behavior of adjusting the origin
+          // to match the new frame.
+          img.setOriginFromFrame();
+        } else {
+          // Re-apply the origin now that it has changed with the resize
+          img.setOrigin(imgOriginX, imgOriginY);
+        }
       });
 
       return img;
@@ -718,6 +745,7 @@ export class LiveAtlas {
      * as this will take care of handling size constraints for you.
      */
     toJSON: async () => {
+      this.repack();
       return await this.exportSerializedData();
     },
 
@@ -803,7 +831,6 @@ export class LiveAtlas {
         return false;
       }
 
-      console.log('import existing..', parsedData);
       try {
         await this.importExistingAtlas(parsedData.frames, parsedData.image, parsedData.packerData);
         this.setRepackFlag();

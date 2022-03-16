@@ -33,32 +33,19 @@ export default class MainScene extends Phaser.Scene {
     // console.log('start');
 
     this.liveAtlas = new LiveAtlas(this, "main");
-
     this.liveAtlas.setPixelArt(true);
 
-    this.liveAtlas
-      .addFrame(
-        "https://cdn.gather.town/storage.googleapis.com/gather-town.appspot.com/uploads/oxrhEtb3sV7VutbQ/AQ9yOcyOnUkIV70MPl8LcL"
-      )
-      .then(() => {
-        this.liveAtlas.removeFrame(
-          "https://cdn.gather.town/storage.googleapis.com/gather-town.appspot.com/uploads/oxrhEtb3sV7VutbQ/AQ9yOcyOnUkIV70MPl8LcL",
-          true
-        );
-      });
+    console.log('in create...');
 
     console.time("load existing from storage");
-    this.liveAtlas.load.fromIndexedDB().then(() => {
+    // this.liveAtlas.load.fromBrowserStorage().then(() => {
       console.timeEnd("load existing from storage");
-
-      this.liveAtlas.storage.getStoredSize().then((bytes) => {
-        console.log("stored bytes", bytes);
-      });
-
-      this.loadBunchaObjects();
-
+      console.log('inside frombrwoserstoraoasdfasdf');
+      this.loadBunchaObjects(0, 10);
       (window as any).loadBunchaObjects = this.loadBunchaObjects;
-    });
+      (window as any).save = this.liveAtlas.save.toBrowserStorage.bind(this.liveAtlas);
+      (window as any).load = this.liveAtlas.load.fromBrowserStorage.bind(this.liveAtlas);
+    // });
   };
 
   loadBunchaObjects = async (start = 0, end = 20) => {
@@ -79,18 +66,6 @@ export default class MainScene extends Phaser.Scene {
       this.pendingCount -= 1;
     }
 
-    console.log("done");
-    (window as any).saveRT = async () => {
-      await this.liveAtlas.save.toIndexedDB();
-      console.log("stored size", await this.liveAtlas.storage.getStoredSize());
-    };
-
-    let removeCount = 0;
-    (window as any).removeNext = () => {
-      this.liveAtlas.removeFrame(objectList[removeCount], true);
-      removeCount += 1;
-    };
-    (window as any).repack = this.liveAtlas.repack.bind(this.liveAtlas);
   };
   update = (time: number, delta: number) => {
     // do something every tick here
