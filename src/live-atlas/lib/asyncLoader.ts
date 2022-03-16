@@ -21,10 +21,8 @@ export const loadIntoPhaser = (loadKey: string, loaderPlugin: Phaser.Loader.Load
     function makeHandler(callbackFn: VoidFunction) {
       return function (key: string, _type: never, _info: never) {
         if (key === loadKey) {
-          setTimeout(()=>{
-            removeBindings(); // Ensure nothing else fires for this key
-            callbackFn();
-          }, 1000);
+          removeBindings(); // Ensure nothing else fires for this key
+          callbackFn();
         }
       };
     }

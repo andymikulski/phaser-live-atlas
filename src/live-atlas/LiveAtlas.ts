@@ -20,21 +20,26 @@ export class LiveAtlas {
 
   private packer = new ShelfPack(1, 1, true);
 
-  public get texture(): Phaser.GameObjects.RenderTexture {
-    return this.rt;
+  public get texture(): Phaser.Textures.Texture {
+    return this.rt.texture;
   }
-  public set texture(v: Phaser.GameObjects.RenderTexture) {
-    this.rt = v;
+
+  public get renderTexture(): Phaser.GameObjects.RenderTexture {
+    return this.rt;
   }
 
   constructor(public scene: Phaser.Scene, public id: string) {
     this.rt = scene.make.renderTexture({ width: 1, height: 1 });
     this.rt.saveTexture("live-atlas-" + id);
 
-    this.eraserCursor = scene.add
-      .rectangle(0, 0, 1, 1, 0xffffff, 1)
-      .setVisible(false);
+    this.eraserCursor = scene.add.rectangle(0, 0, 1, 1, 0xffffff, 1).setVisible(false);
   }
+
+  public destroy = (fromScene?: boolean) => {
+    this.rt.destroy(fromScene);
+    this.backbuffer?.destroy(fromScene);
+    this.eraserCursor?.destroy(fromScene);
+  };
 
   // ------
 
@@ -51,23 +56,18 @@ export class LiveAtlas {
   };
 
   private trimCanvas?: Phaser.Textures.CanvasTexture;
-  private getImageDataFromSource = (
-    src: HTMLImageElement | HTMLCanvasElement
-  ) => {
+  private getImageDataFromSource = (src: HTMLImageElement | HTMLCanvasElement) => {
     if (!this.trimCanvas) {
-      this.trimCanvas = this.rt.scene.textures.createCanvas(
-        "trim canvas",
-        src.width,
-        src.height
-      );
+      this.trimCanvas = this.rt.scene.textures.createCanvas("trim canvas", src.width, src.height);
     } else {
       this.trimCanvas.setSize(src.width, src.height);
     }
 
     this.trimCanvas.draw(0, 0, src);
-    return this.trimCanvas
-      .getContext()
-      .getImageData(0, 0, src.width, src.height);
+    const trimData = this.trimCanvas.getContext().getImageData(0, 0, src.width, src.height);
+    this.trimCanvas.setSize(1, 1);
+    this.trimCanvas.clear();
+    return trimData;
   };
   private trimFrame = (frameKey: string) => {
     const src = this.rt.scene.textures.get(frameKey).getSourceImage();
@@ -134,26 +134,22 @@ export class LiveAtlas {
    *
    * @return  {[]}                    [return description]
    */
-  public async addFrame(textureKey: string | string[]) {
+  public async addFrame(textureKey: string | string[], ignoreExistingFrame = false) {
     if (!(textureKey instanceof Array)) {
       textureKey = [textureKey];
     }
 
     for (let i = 0; i < textureKey.length; i++) {
       const currentFrame = textureKey[i];
-      if (!currentFrame) {
+      if (!currentFrame || (!ignoreExistingFrame && this.frames[currentFrame])) {
         continue;
       }
-
       // set this frame to render nothing at first - when it's loaded it will automatically update
       this.maybeRegisterEmptyFrame(currentFrame);
 
       // load `textureKey` as an image/texture
       try {
-        await asyncLoader(
-          currentFrame,
-          this.scene.load.image(currentFrame, currentFrame)
-        );
+        await asyncLoader(currentFrame, this.scene.load.image(currentFrame, currentFrame));
       } catch (err) {
         continue;
       }
@@ -172,7 +168,7 @@ export class LiveAtlas {
           trimFraming.x,
           trimFraming.y,
           trimFraming.trimmedWidth,
-          trimFraming.trimmedHeight
+          trimFraming.trimmedHeight,
         );
         // img.updateUVs();
       }
@@ -211,19 +207,19 @@ export class LiveAtlas {
         trimmedWidth: number;
         trimmedHeight: number;
       };
-    }
+    },
   ) => {
     const packedFrame = dimensions?.trim
       ? this.packer.packOne(
-          dimensions.trim.trimmedWidth + this.framePadding,
-          dimensions.trim.trimmedHeight + this.framePadding,
-          key
-        )
+        dimensions.trim.trimmedWidth + this.framePadding,
+        dimensions.trim.trimmedHeight + this.framePadding,
+        key,
+      )
       : this.packer.packOne(
-          dimensions.width + this.framePadding,
-          dimensions.height + this.framePadding,
-          key
-        );
+        dimensions.width + this.framePadding,
+        dimensions.height + this.framePadding,
+        key,
+      );
 
     if (!packedFrame) {
       console.warn("Could not pack new frame with key: " + key);
@@ -235,14 +231,11 @@ export class LiveAtlas {
       packedFrame.x,
       packedFrame.y,
       packedFrame.width - halfPadding,
-      packedFrame.height - halfPadding
+      packedFrame.height - halfPadding,
     );
 
     // if `this.rt`'s dimensions do not contain the total packed rects determined above,
-    if (
-      this.rt.width < this.packer.width ||
-      this.rt.height < this.packer.height
-    ) {
+    if (this.rt.width < this.packer.width || this.rt.height < this.packer.height) {
       // use `this.resizeTexture()` to increase the texture (by double? the exact amount??)
       this.resizeTexture(this.packer.width, this.packer.height);
     }
@@ -257,12 +250,7 @@ export class LiveAtlas {
     // so we can insert it "as-is".
     const existingFrame = this.rt.texture.get(key);
     if (existingFrame) {
-      existingFrame.setSize(
-        packedFrame.width,
-        packedFrame.height,
-        packedFrame.x,
-        packedFrame.y
-      );
+      existingFrame.setSize(packedFrame.width, packedFrame.height, packedFrame.x, packedFrame.y);
     } else {
       this.rt.texture.add(
         key,
@@ -270,7 +258,7 @@ export class LiveAtlas {
         packedFrame.x,
         packedFrame.y,
         packedFrame.width,
-        packedFrame.height
+        packedFrame.height,
       );
     }
 
@@ -344,20 +332,13 @@ export class LiveAtlas {
         rect.x,
         rect.y,
         rect.width,
-        rect.height
+        rect.height,
       );
 
       // Add frame to RT
       let frame = this.rt.texture.get(id);
       if (!frame) {
-        frame = this.rt.texture.add(
-          id.toString(),
-          0,
-          rect.x,
-          rect.y,
-          rect.width,
-          rect.height
-        );
+        frame = this.rt.texture.add(id.toString(), 0, rect.x, rect.y, rect.width, rect.height);
       }
 
       // frame.setTrim(rect.width, rect.height, 0, 0, rect.width, rect.height);
@@ -394,12 +375,7 @@ export class LiveAtlas {
    */
   private getBackbuffer = () => {
     if (!this.backbuffer) {
-      this.backbuffer = this.scene.add.renderTexture(0, 0, 100, 100);
-      // .setOrigin(0, 0)
-      // .setPosition(100, 100)
-      // .setDepth(Infinity);
-      // .setVisible(false);
-
+      this.backbuffer = this.scene.add.renderTexture(0, 0, 100, 100).setVisible(false);
       this.backbuffer.fill(0xff0000);
 
       this.backbuffer.saveTexture(this.backbufferKey());
@@ -537,22 +513,14 @@ export class LiveAtlas {
       y: number;
     };
   }) => {
-    return Object.keys(incomingFrames).reduce<typeof this.frames>(
-      (acc, frameUrl) => {
-        const frame = incomingFrames[frameUrl];
-        if (!frame) {
-          return acc;
-        }
-        acc[frameUrl] = new Phaser.Geom.Rectangle(
-          frame.x,
-          frame.y,
-          frame.width,
-          frame.height
-        );
+    return Object.keys(incomingFrames).reduce<typeof this.frames>((acc, frameUrl) => {
+      const frame = incomingFrames[frameUrl];
+      if (!frame) {
         return acc;
-      },
-      {}
-    );
+      }
+      acc[frameUrl] = new Phaser.Geom.Rectangle(frame.x, frame.y, frame.width, frame.height);
+      return acc;
+    }, {});
   };
 
   /**
@@ -568,7 +536,7 @@ export class LiveAtlas {
         this.trimCanvas = this.rt.scene.textures.createCanvas(
           "trim canvas",
           this.rt.width,
-          this.rt.height
+          this.rt.height,
         );
       } else {
         this.trimCanvas.setSize(this.rt.width, this.rt.height);
@@ -577,6 +545,9 @@ export class LiveAtlas {
       this.trimCanvas.draw(0, 0, imgDataSource);
       url = this.trimCanvas.canvas.toDataURL();
       url = imgDataSource.toDataURL();
+
+      this.trimCanvas.setSize(1, 1);
+      this.trimCanvas.clear();
     } else {
       throw new Error("WebGL serialization not yet supported!");
     }
@@ -601,7 +572,7 @@ export class LiveAtlas {
       };
     },
     imageUri: string,
-    packerData: string
+    packerData: string,
   ) => {
     const key = this.textureKey + "-import-" + Math.random();
     this.frames = this.deserializeFrames(frames);
@@ -611,14 +582,7 @@ export class LiveAtlas {
       if (!frame) {
         continue;
       }
-      this.rt.texture.add(
-        frameUrl,
-        0,
-        frame.x,
-        frame.y,
-        frame.width,
-        frame.height
-      );
+      this.rt.texture.add(frameUrl, 0, frame.x, frame.y, frame.width, frame.height);
     }
 
     const incomingPacker = JSON.parse(packerData);
@@ -627,11 +591,7 @@ export class LiveAtlas {
       if (key === "shelves") {
         for (let i = 0; i < incomingPacker[key].length; i++) {
           const incomingShelf = incomingPacker[key][i];
-          const shelf = new Shelf(
-            incomingShelf.y,
-            incomingShelf.width,
-            incomingShelf.height
-          );
+          const shelf = new Shelf(incomingShelf.y, incomingShelf.width, incomingShelf.height);
           shelf.free = incomingShelf.free;
           shelf.x = incomingShelf.x;
           this.packer.shelves.push(shelf);
@@ -654,7 +614,7 @@ export class LiveAtlas {
 
           if (!frame) {
             rej(
-              "LiveAtlas : error when importing serialized texture! : could not find base frame."
+              "LiveAtlas : error when importing serialized texture! : could not find base frame.",
             );
             return;
           }
@@ -669,7 +629,7 @@ export class LiveAtlas {
           this.setRepackFlag();
 
           res();
-        }
+        },
       );
     });
   };
@@ -708,11 +668,7 @@ export class LiveAtlas {
       if (!parsedData || !parsedData.frames || !parsedData.image) {
         return;
       }
-      await this.importExistingAtlas(
-        parsedData.frames,
-        parsedData.image,
-        parsedData.packerData
-      );
+      await this.importExistingAtlas(parsedData.frames, parsedData.image, parsedData.packerData);
     } catch (err) {
       return;
     }
@@ -771,9 +727,7 @@ export class LiveAtlas {
    */
   public setPixelArt = (isPixelArt: boolean) => {
     this.rt.texture.setFilter(
-      isPixelArt
-        ? Phaser.Textures.FilterMode.NEAREST
-        : Phaser.Textures.FilterMode.LINEAR
+      isPixelArt ? Phaser.Textures.FilterMode.NEAREST : Phaser.Textures.FilterMode.LINEAR,
     );
     return this;
   };
@@ -789,9 +743,9 @@ export class LiveAtlas {
       const img = this.scene.add.image(x, y, this.textureKey, frame);
 
       // Actually load the frame - if necessary - and then ensure that `img` has proper sizing/orientation.
-      this.addFrame(frame).then(() => {
-        img?.setSizeToFrame(img.frame);
-        img?.setOriginFromFrame();
+      this.addFrame(frame, true).then(function () {
+        img.setSizeToFrame(img.frame);
+        img.setOriginFromFrame();
       });
 
       return img;
