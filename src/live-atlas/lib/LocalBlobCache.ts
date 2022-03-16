@@ -12,25 +12,27 @@ class LocalBlobCache {
   }
 
   private connectToCache = () => {
-    var req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onsuccess = (evt) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onsuccess = (_evt) => {
       this.db = req.result;
     };
     req.onerror = function (evt) {
       console.error("error opening cache:", evt);
     };
 
-    req.onupgradeneeded = function (evt) {
-      var db = (evt.target as IDBOpenDBRequest).result;
+    req.onupgradeneeded = function (_change: IDBVersionChangeEvent) {
+      const db = req.result;
       if (!db) {
         console.error("opening ugprading cache:", db);
-        return;
+        return null;
       }
 
       console.log("openDb.onupgradeneeded");
-      var store = db.createObjectStore(DB_STORE_NAME, {});
+      const store = db.createObjectStore(DB_STORE_NAME, {});
       store.createIndex("id", "id", { unique: true });
       store.createIndex("data", "data", { unique: false });
+
+      return null;
     };
   };
 
@@ -43,19 +45,29 @@ class LocalBlobCache {
     return store;
   };
 
-  public saveBlob = async (
-    id: string,
-    data: string | object | Blob
-  ): Promise<void> => {
+  public freeBlob = async (id: string): Promise<void> => {
+    const store = this.getStore("readwrite");
+    if (!store) {
+      return;
+    }
+    return new Promise((res, rej) => {
+      const req = store.delete(id);
+      req.onsuccess = function () {
+        res();
+      };
+      req.onerror = function () {
+        rej();
+      };
+    });
+  };
+
+  public saveBlob = async (id: string, data: string | object | Blob): Promise<void> => {
     if (!this.db) {
       return;
     }
-    console.log("saveBlob ", id);
 
     const blobData =
-      data instanceof Blob
-        ? data
-        : new Blob([JSON.stringify(data)], { type: "text/plain" });
+      data instanceof Blob ? data : new Blob([JSON.stringify(data)], { type: "text/plain" });
     const obj: StoredBlob = {
       type: data instanceof Blob ? "blob" : "json",
       data: blobData,
@@ -63,23 +75,15 @@ class LocalBlobCache {
 
     const store = this.getStore("readwrite");
     if (!store) {
-      console.error("error getting readwrite store");
       return;
     }
 
     return new Promise((res, rej) => {
-      var req;
-      try {
-        req = store.put(obj, id);
-      } catch (e) {
-        throw e;
-      }
+      const req = store.put(obj, id);
       req.onsuccess = function () {
-        console.log("Insertion in DB successful");
         res();
       };
       req.onerror = function () {
-        console.error("saveBlob error", this.error);
         rej();
       };
     });
@@ -87,26 +91,20 @@ class LocalBlobCache {
 
   public loadBlob = async (id: string): Promise<void | Blob | string> => {
     if (!this.db) {
-      console.log("NO DB!");
       return;
     }
     const store = this.getStore("readonly");
     if (!store) {
-      console.log("NO STORE!");
       return;
     }
 
-    console.log("here in loadBlob");
     return new Promise((res, rej) => {
-      console.log("store get", id);
-      const req = store.get(id) as IDBRequest<StoredBlob>;
+      const req: IDBRequest<StoredBlob> = store.get(id);
 
-      req.onerror = (evt) => {
-        console.log("error getting store thing", req.error);
+      req.onerror = (_evt) => {
         rej(req.error);
       };
-      req.onsuccess = (evt) => {
-        console.log("on store done get", evt.target);
+      req.onsuccess = (_evt) => {
         if (!req.result) {
           res();
           return;

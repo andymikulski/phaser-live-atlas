@@ -4,6 +4,25 @@ import { loadIntoPhaser as asyncLoader } from "./lib/asyncLoader";
 import LocalBlobCache from "./lib/LocalBlobCache";
 import ShelfPack, { Shelf } from "./lib/ShelfPack";
 
+/**
+ * Given a number of bytes, returns a human-readable, simplified representation of the value.
+ * ex:
+ * getHumanByteSize(100) -> "100 Bytes"
+ * getHumanByteSize(1024) -> "1.0 KB"
+ * getHumanByteSize(123456789) -> "117.7 MB"
+ */
+function convertBytesToHumanReadable(bytes: number) {
+  if (bytes === 0) {
+    return "0 Bytes";
+  }
+  const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(1000));
+  if (i === 0) {
+    return `${bytes} ${sizes[i]}`;
+  }
+  return `${(bytes / 1024 ** i).toFixed(1)} ${sizes[i]}`;
+}
+
 type SerializedAtlas = {
   frames: {
     [id: string]: { x: number; y: number; width: number; height: number };
@@ -211,15 +230,15 @@ export class LiveAtlas {
   ) => {
     const packedFrame = dimensions?.trim
       ? this.packer.packOne(
-        dimensions.trim.trimmedWidth + this.framePadding,
-        dimensions.trim.trimmedHeight + this.framePadding,
-        key,
-      )
+          dimensions.trim.trimmedWidth + this.framePadding,
+          dimensions.trim.trimmedHeight + this.framePadding,
+          key,
+        )
       : this.packer.packOne(
-        dimensions.width + this.framePadding,
-        dimensions.height + this.framePadding,
-        key,
-      );
+          dimensions.width + this.framePadding,
+          dimensions.height + this.framePadding,
+          key,
+        );
 
     if (!packedFrame) {
       console.warn("Could not pack new frame with key: " + key);
@@ -288,7 +307,7 @@ export class LiveAtlas {
   public repack() {
     // This has already been repacked before
     if (!this.requiresRepack) {
-      return;
+      return this;
     }
 
     // Use existing frames in memory
@@ -350,6 +369,8 @@ export class LiveAtlas {
 
     // Update `repack` flag to track if any changes are ever made here
     this.clearRepackFlag();
+
+    return this;
   }
 
   private setRepackFlag = () => {
@@ -610,12 +631,10 @@ export class LiveAtlas {
           const textureFrames = texture.frames as {
             [key: string]: Phaser.Textures.Frame;
           };
-          const frame = textureFrames[texture.firstFrame];
 
+          const frame = textureFrames[texture.firstFrame];
           if (!frame) {
-            rej(
-              "LiveAtlas : error when importing serialized texture! : could not find base frame.",
-            );
+            rej("LiveAtlas : could not find base frame when importing texture!");
             return;
           }
 
@@ -633,82 +652,6 @@ export class LiveAtlas {
       );
     });
   };
-
-  /**
-   * Serialize atlas and saves it to the local machine.
-   * Uses IndexedDB under the hood, meaning space concerns shouldn't really be an issue.
-   */
-  public saveToLocalStorage = async () => {
-    // Try to repack in case some space can be saved
-    this.repack();
-
-    // Serialize the data to strings
-    const data = await this.exportSerializedData();
-
-    // Save the data as a `Blob` to indexeddb. (This allow sus to store files of 500+ mb)
-    await LocalBlobCache.saveBlob(this.textureKey, data);
-  };
-
-  /**
-   * [loadFromLocalStorage description]
-   */
-  public loadFromLocalStorage = async () => {
-    const data = await LocalBlobCache.loadBlob(this.textureKey);
-    if (!data) {
-      return;
-    }
-
-    if (data instanceof Blob) {
-      // this should not happen
-      return;
-    }
-
-    try {
-      const parsedData: SerializedAtlas = JSON.parse(data);
-      if (!parsedData || !parsedData.frames || !parsedData.image) {
-        return;
-      }
-      await this.importExistingAtlas(parsedData.frames, parsedData.image, parsedData.packerData);
-    } catch (err) {
-      return;
-    }
-
-    this.setRepackFlag();
-  };
-
-  /**
-   * Queries the browser to determine how much storage space is still available for IndexedDB.
-   *
-   * Note these values reflect the _browser's_ overall storage capability, and NOT what is
-   * currently only in use by this LiveAtlas.
-   *
-   * If you want to know the size of _this_ atlas, use `getStoredByteSize` instead.
-   */
-  public async getStorageQuotaEstimates() {
-    const spaceUsed = await navigator.storage.estimate();
-    const ratio = (spaceUsed.usage || 0) / (spaceUsed.quota || 0.1);
-
-    return {
-      usedSize: spaceUsed.usage,
-      maxSize: spaceUsed.quota,
-      percent: ratio,
-    };
-  }
-
-  /**
-   * Returns how much data is currently being stored by this atlas.
-   * Note that this measures the _stored_ data and will return `0` if no data has not yet been saved.
-   */
-  public async getStoredByteSize() {
-    const data = await LocalBlobCache.loadBlob(this.textureKey);
-    if (!data) {
-      return 0;
-    }
-    if (data instanceof Blob) {
-      return data.size;
-    }
-    return data.length;
-  }
 
   /**
    * [showDebugTexture description]
@@ -732,6 +675,14 @@ export class LiveAtlas {
     return this;
   };
 
+  // -----------------------------------------------------------------------------------------------
+
+  /**
+   * Factory functions to create new Images, Sprites, etc.
+   *
+   * All functions return native Phaser classes and are simply just a means for easy integration
+   * with this LiveAtlas.
+   */
   public make = {
     image: (x: number, y: number, frame: string): Phaser.GameObjects.Image => {
       // Register `frame` as a texture on this frame immediately
@@ -749,6 +700,233 @@ export class LiveAtlas {
       });
 
       return img;
+    },
+  } as const;
+
+  /**
+   * Serialization functions to export data and save it to the local machine.
+   */
+  public save = {
+    /**
+     * Exports the current atlas to a JSONified string containing:
+     *  - All placed `frames` in the atlas
+     *  - The data URI string of the atlas image
+     *  - The relevant atlas state needed for re-use when imported later
+     *
+     * Note that as a result of containing the stringified image, this string can become quite heavy!
+     * If you're trying to save this string to the user's computer, be sure to use `save.toBrowserStorage`
+     * as this will take care of handling size constraints for you.
+     */
+    toJSON: async () => {
+      return await this.exportSerializedData();
+    },
+
+    /**
+     * Exports the current atlas to a JSON string (via `save.toJSON`) and stores it in `localStorage`.
+     * Optionally, pass `true` as the second argument and `sessionStorage` will be used instead.
+     */
+    toLocalStorage: async (storageKey: string = this.textureKey, useSessionStorage = false) => {
+      const atlas = await this.save.toJSON();
+      const json = JSON.stringify(atlas);
+      const estSizeBytes = json.length * 2; // 2 bytes per UTF-16 character
+      if (estSizeBytes >= 5_000_000) {
+        const humanReadableSize = convertBytesToHumanReadable(estSizeBytes);
+        const seshType = useSessionStorage ? "session" : "local";
+        // LocalStorage has a 5mb limit
+        throw new Error(
+          `Could not save atlas to ${seshType} storage - size exceeds 5mb! (${humanReadableSize})`,
+        );
+      }
+
+      const setItem = useSessionStorage
+        ? sessionStorage.setItem.bind(sessionStorage)
+        : localStorage.setItem.bind(localStorage);
+      setItem(storageKey, json);
+    },
+
+    /**
+     * Exports the current atlas to a JSON string (via `save.toJSON`) and stores it in `IndexedDB`.
+     * This is necessary when saving atlas data greater than 5mb
+     */
+    toIndexedDB: async (storageKey: string = this.textureKey) => {
+      // Serialize the data to strings
+      const data = await this.save.toJSON();
+      // Save the data as a `Blob` to indexeddb. (This allows us to store files of 500+ mb)
+      await LocalBlobCache.saveBlob(storageKey, data);
+    },
+
+    /**
+     * Exports the current atlas and saves it to the local browser in either `localStorage` or `IndexedDB`,
+     * depending on the filesize of the serialized atlas.
+     */
+    toBrowserStorage: async (storageKey: string = this.textureKey) => {
+      // Remove any prior values saved to this browser.
+      // The reason this happens is because an atlas can change size, and multiple `toBrowserStorage`
+      // calls could lead to outdated data lingering behind in IDB.
+      await this.storage.freeStoredData(storageKey);
+
+      // Attempt localStorage first, then IDB.
+      try {
+        await this.save.toLocalStorage(storageKey);
+      } catch (err1) {
+        // LocalStorage failed - probably because of the 5mb filesize limit
+        try {
+          await this.save.toIndexedDB(storageKey);
+        } catch (err2) {
+          // Both failed!
+          throw new Error("Could not save to local file system! " + err1 + " \n" + err2);
+        }
+      }
+    },
+  } as const;
+
+  /**
+   * Deserialization functions to load atlases that were stored on the local machine.
+   * Note these functions **replace the current contents of this atlas.**
+   *
+   * If you want to add frames to an existing atlas, use `this.addFrame([...])` instead.
+   */
+  public load = {
+    /**
+     * Given a serialized atlas string, parses and imports the contents into the current atlas.
+     * Note this operation **overwrites the existing atlas**. If you want to add frames to an existing
+     * atlas, use `this.addFrame([...])` instead.
+     */
+    fromJSON: async (json: string) => {
+      let parsedData: SerializedAtlas | undefined;
+      try {
+        parsedData = JSON.parse(json);
+        if (!parsedData || !parsedData.frames || !parsedData.image) {
+          return false;
+        }
+      } catch (err) {
+        return false;
+      }
+
+      console.log('import existing..', parsedData);
+      try {
+        await this.importExistingAtlas(parsedData.frames, parsedData.image, parsedData.packerData);
+        this.setRepackFlag();
+      } catch (err) {
+        return false;
+      }
+
+      return true;
+    },
+    /**
+     * Searches `localStorage` for the given atlas key and imports it, replacing the current contents
+     * of this atlas.
+     *
+     * Optionally, pass `true` as the second argument and `sessionStorage` will be used instead.
+     */
+    fromLocalStorage: async (storageKey: string = this.textureKey, useSessionStorage = false) => {
+      const lookup = useSessionStorage
+        ? sessionStorage.getItem.bind(sessionStorage)
+        : localStorage.getItem.bind(localStorage);
+
+      const existingJSON = lookup(storageKey);
+      if (!existingJSON) {
+        return false;
+      }
+
+      return this.load.fromJSON(existingJSON);
+    },
+    /**
+     * Searches `IndexedDB` for the given atlas key and imports it, replacing the current contents
+     * of this atlas.
+     */
+    fromIndexedDB: async (storageKey: string = this.textureKey) => {
+      const data = await LocalBlobCache.loadBlob(storageKey);
+      if (!data || data instanceof Blob) {
+        // Data should not be a Blob, as we always store strings for this atlas data.
+        return false;
+      }
+      return this.load.fromJSON(data);
+    },
+
+    /**
+     * Checks the browser's storage for saved atlas data (in either localStorage or IndexedDB).
+     * The current atlas will have its contents automatically updated accordingly.
+     */
+    fromBrowserStorage: async (storageKey: string = this.textureKey) => {
+      let localResult;
+      try {
+        // We'll track if this load was fruitful - if so, we don't try to load from IDB.
+        // If it returns `false` then we just will step over to IDB and
+        localResult = await this.load.fromLocalStorage(storageKey);
+      } catch (err) {
+        // LocalStorage failed - probably because of the 5mb filesize limit
+      }
+
+      if (localResult) {
+        return;
+      }
+
+      if (!localResult) {
+        try {
+          await this.load.fromIndexedDB(storageKey);
+        } catch (err) {
+          // Both failed!
+        }
+      }
+    },
+  } as const;
+
+  /**
+   * Utility functions relating to on-device storage for serialized atlases
+   */
+  public storage = {
+    /**
+     * Queries the browser to determine how much storage space is still available for IndexedDB.
+     *
+     * Note these values reflect the _browser's_ overall storage capability, and NOT what is
+     * currently only in use by this LiveAtlas.
+     *
+     * If you want to know the size of _this_ atlas, use `storage.getStoredByteSize` instead.
+     */
+    getQuotaEstimate: async () => {
+      const spaceUsed = await navigator.storage.estimate();
+      const ratio = (spaceUsed.usage || 0) / (spaceUsed.quota || 0.1);
+
+      return {
+        usedSize: spaceUsed.usage,
+        maxSize: spaceUsed.quota,
+        percent: ratio,
+      };
+    },
+
+    /**
+     * Returns how much data is currently being stored by this atlas.
+     * Note that this measures the _stored_ data and will return `0` if no data has not yet been saved.
+     */
+    getStoredSize: async (storageKey: string = this.textureKey) => {
+      const data = await LocalBlobCache.loadBlob(storageKey);
+      if (!data) {
+        return 0;
+      }
+      if (data instanceof Blob) {
+        return data.size;
+      }
+      return data.length * 2; // 2 bytes per UTF-16 character
+    },
+
+    /**
+     * Returns the stored size of the given atlas key in human-readable terms.
+     * ex: "100 Bytes", "1.0 KB", "117.7 MB" etc
+     */
+    getHumanByteSize: async (storageKey: string = this.textureKey) => {
+      const bytes = await this.storage.getStoredSize(storageKey);
+      return convertBytesToHumanReadable(bytes);
+    },
+
+    /**
+     * Frees any stored data associated with the given storage key.
+     * This wipes out the browser's local, session, and IDB storages.
+     */
+    freeStoredData: async (storageKey = this.textureKey) => {
+      localStorage.removeItem(storageKey);
+      sessionStorage.removeItem(storageKey);
+      await LocalBlobCache.freeBlob(storageKey);
     },
   } as const;
 }

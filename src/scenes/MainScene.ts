@@ -48,10 +48,10 @@ export default class MainScene extends Phaser.Scene {
       });
 
     console.time("load existing from storage");
-    this.liveAtlas.loadFromLocalStorage().then(() => {
+    this.liveAtlas.load.fromIndexedDB().then(() => {
       console.timeEnd("load existing from storage");
 
-      this.liveAtlas.getStoredByteSize().then((bytes) => {
+      this.liveAtlas.storage.getStoredSize().then((bytes) => {
         console.log("stored bytes", bytes);
       });
 
@@ -81,8 +81,8 @@ export default class MainScene extends Phaser.Scene {
 
     console.log("done");
     (window as any).saveRT = async () => {
-      await this.liveAtlas.saveToLocalStorage();
-      console.log("stored size", await this.liveAtlas.getStoredByteSize());
+      await this.liveAtlas.save.toIndexedDB();
+      console.log("stored size", await this.liveAtlas.storage.getStoredSize());
     };
 
     let removeCount = 0;
