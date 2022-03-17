@@ -37,15 +37,12 @@ export default class MainScene extends Phaser.Scene {
 
     console.log('in create...');
 
-    console.time("load existing from storage");
-    // this.liveAtlas.load.fromBrowserStorage().then(() => {
-      console.timeEnd("load existing from storage");
-      console.log('inside frombrwoserstoraoasdfasdf');
+    this.liveAtlas.load.fromBrowserStorage().then(() => {
       this.loadBunchaObjects(0, 10);
       (window as any).loadBunchaObjects = this.loadBunchaObjects;
       (window as any).save = this.liveAtlas.save.toBrowserStorage.bind(this.liveAtlas);
       (window as any).load = this.liveAtlas.load.fromBrowserStorage.bind(this.liveAtlas);
-    // });
+    });
   };
 
   loadBunchaObjects = async (start = 0, end = 20) => {

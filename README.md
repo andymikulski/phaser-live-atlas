@@ -5,3 +5,5 @@ TODO:
 - Off-thread texture save?
 - Animations - inject frames into existing atlas?
 - Maybe use/expose `navigator.storage.persist` ?
+- Multiple things calling `addFrame` at the same time produces weird results
+  - race condition with loading/processing - we constantly create/destroy/etc even though once is enough

@@ -23,6 +23,10 @@ function convertBytesToHumanReadable(bytes: number) {
   return `${(bytes / 1024 ** i).toFixed(1)} ${sizes[i]}`;
 }
 
+/**
+ * Format used for serialized JSON.
+ * This is used primarily when saving/loading atlas data from the local browser.
+ */
 type SerializedAtlas = {
   frames: {
     [id: string]: { x: number; y: number; width: number; height: number };
@@ -31,7 +35,53 @@ type SerializedAtlas = {
   packerData: string;
 };
 
+/**
+ * LiveAtlas - An on-the-fly spritesheet generator with support for serialization, repack, and more!
+ *
+ *
+ * Usage:
+ * ```ts
+ * // Creation
+ * this.liveAtlas = new LiveAtlas(this, "main");
+ * this.liveAtlas.setPixelArt(true); // for crisp graphics
+ *
+ * // Loading new frames (preloading)
+ * this.liveAtlas.addFrame(urlToFrameImage)
+ *
+ * // Elsewhere in the app..
+ *
+ * // Preload
+ * const somePathToImg = '/path/to/my-img.png';
+ * this.liveAtlas.addFrame(somePathToImg);
+ *
+ * // Add image with existing frame
+ * this.liveAtlas.make.image(x, y, somePathToImg);
+ *
+ * // Load + add image on the fly - without preloading. The returned `Image` will be sized at 1px v 1px until
+ * // the image has been loaded, at which point it'll be resized and show the correct texture as expected.
+ * const img = this.liveAtlas.make.image(x, y, '/some/other/url.png');
+ *
+ *
+ * // Later, if you want to replace an image with a different frame in the atlas (which may not have
+ * // even been loaded yet):
+ * this.liveAtlas.applyFrame('/a-third-url.png', img);
+ *
+ *
+ * // The atlas can also be serialized/imported (from localStorage, sessionStorage, or IndexedDB).
+ * // Using `BrowserStorage` will select the best-suited storage location for data.
+ * this.liveAtlas.save.toBrowserStorage();
+ *
+ * // You can also use `toJSON` if you want the serialized data yourself:
+ * const serialized = this.liveAtlas.save.toJSON();
+ * // serialized = {frames: [...], image: 'data:image/png;base64,...', packerData: '<internal packer data>'};
+ *
+ * // Using `load` will replace the current atlas with whatever has been serialized to the local machine.
+ * this.liveAtlas.load.fromBrowserStorage();
+ * ```
+ */
 export class LiveAtlas {
+  private requiresRepack = false;
+  private framePadding = 4;
   private frames: { [imgUrl: string]: Phaser.Geom.Rectangle } = {};
   private rt: Phaser.GameObjects.RenderTexture;
   private backbuffer?: Phaser.GameObjects.RenderTexture;
@@ -42,13 +92,17 @@ export class LiveAtlas {
   public get texture(): Phaser.Textures.Texture {
     return this.rt.texture;
   }
-
   public get renderTexture(): Phaser.GameObjects.RenderTexture {
     return this.rt;
   }
+  public get textureKey(): string {
+    return "live-atlas-" + this.id;
+  }
+
+  // ---- Standard lifecycle events
 
   constructor(public scene: Phaser.Scene, public id: string) {
-    this.rt = scene.make.renderTexture({ width: 1, height: 1 });
+    this.rt = scene.make.renderTexture({ width: 1, height: 1 }).setVisible(false);
     this.rt.saveTexture("live-atlas-" + id);
 
     this.eraserCursor = scene.add.rectangle(0, 0, 1, 1, 0xffffff, 1).setVisible(false);
@@ -61,10 +115,6 @@ export class LiveAtlas {
   };
 
   // ------
-
-  public get textureKey(): string {
-    return "live-atlas-" + this.id;
-  }
 
   private backbufferKey = () => {
     return "live-atlas-backbuffer-" + this.id;
@@ -146,6 +196,8 @@ export class LiveAtlas {
     this.setRepackFlag();
   }
 
+  // private processingFrames: { [frame: string]: Promise<void> } = {};
+
   /**
    * [async description]
    *
@@ -153,14 +205,14 @@ export class LiveAtlas {
    *
    * @return  {[]}                    [return description]
    */
-  public async addFrame(textureKey: string | string[], ignoreExistingFrame = false) {
+  public async addFrame(textureKey: string | string[], force = false) {
     if (!(textureKey instanceof Array)) {
       textureKey = [textureKey];
     }
 
     for (let i = 0; i < textureKey.length; i++) {
       const currentFrame = textureKey[i];
-      if (!currentFrame || (!ignoreExistingFrame && this.frames[currentFrame])) {
+      if (!currentFrame || (!force && this.frames[currentFrame])) {
         continue;
       }
       // set this frame to render nothing at first - when it's loaded it will automatically update
@@ -169,9 +221,11 @@ export class LiveAtlas {
       // load `textureKey` as an image/texture
       try {
         await asyncLoader(currentFrame, this.scene.load.image(currentFrame, currentFrame));
+        // this.processingFrames[currentFrame] = loadingPromise;
+        // await loadingPromise;
       } catch (err) {
         console.log("error loading image", err);
-        continue;
+        continue; // stop processing frame, move to next
       }
 
       // get its dimensions (somehow..)
@@ -179,8 +233,10 @@ export class LiveAtlas {
       const imgTexture = this.rt.scene.textures.get(currentFrame);
 
       if (!frame) {
-        // debugger;
-        // throw new Error('Frame not found after importing....');
+        console.warn("LiveAtlas : no frame found after importing to Phaser!", currentFrame);
+        this.rt.scene.textures;
+        debugger;
+        continue;
       }
 
       const trimFraming = this.trimFrame(currentFrame);
@@ -213,9 +269,6 @@ export class LiveAtlas {
    * Ensures there is at least this many pixels between frames.
    * (Gaps in the atlas may mean that there are more than `framePadding` pixels in some cases.)
    */
-  private framePadding = 4;
-
-  private cursor?: Phaser.GameObjects.Rectangle;
   private packNewFrame = (
     key: string,
     dimensions: {
@@ -290,8 +343,6 @@ export class LiveAtlas {
     this.setRepackFlag();
   };
 
-  private requiresRepack = false;
-
   private maybeRegisterEmptyFrame(frame: string) {
     const existingFrame = this.rt.texture.has(frame);
     if (existingFrame) {
@@ -303,13 +354,11 @@ export class LiveAtlas {
   }
 
   /**
-   * heavy!
-   *
    * uses binpacking on the registered frames and then redraws the underlying render texture for optimal sizing
    */
-  public repack() {
-    // This has already been repacked before
-    if (!this.requiresRepack) {
+  public repack = (force = false) => {
+    // Ignore repacks, unless forced
+    if (force === false && !this.requiresRepack) {
       return this;
     }
 
@@ -374,7 +423,7 @@ export class LiveAtlas {
     this.clearRepackFlag();
 
     return this;
-  }
+  };
 
   private setRepackFlag = () => {
     this.requiresRepack = true;
@@ -497,57 +546,86 @@ export class LiveAtlas {
   };
 
   /**
-   * [serializeFrames description]
+   * Use this to ensure the texture has a crisp appearance when scaled/zoomed.
+   * By default, this is `false`, meaning the atlas texture is rendered in a smoother fashion.
    */
-  private serializeFrames = () => {
-    return Object.keys(this.frames).reduce<{
-      [imageUrl: string]: {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-      };
-    }>((acc, frameUrl) => {
-      const frame = this.frames[frameUrl];
-      if (!frame) {
-        return acc;
-      }
-      acc[frameUrl] = {
-        x: frame.x,
-        y: frame.y,
-        width: frame.width,
-        height: frame.height,
-      };
-      return acc;
-    }, {});
+  public setPixelArt = (isPixelArt: boolean) => {
+    this.rt.texture.setFilter(
+      isPixelArt ? Phaser.Textures.FilterMode.NEAREST : Phaser.Textures.FilterMode.LINEAR,
+    );
+    return this;
   };
 
   /**
-   * Converts serialized frames (POJOs) into `Phaser.Geom.Rectangle`s.
-   * This is primarily used when importing `frames`, probably from a serialized atlas.
+   * Applies a frame from this atlas to the given Phaser object. Loads the frame into the atlas if necessary.
+   *
+   * Use this if you want to change the texture of an object that already exists.
+   * If creating a new object, use `atlas.make.image(...)` instead.
    */
-  private deserializeFrames = (incomingFrames: {
-    [imageUrl: string]: {
-      width: number;
-      height: number;
-      x: number;
-      y: number;
-    };
-  }) => {
-    return Object.keys(incomingFrames).reduce<typeof this.frames>((acc, frameUrl) => {
-      const frame = incomingFrames[frameUrl];
-      if (!frame) {
-        return acc;
-      }
-      acc[frameUrl] = new Phaser.Geom.Rectangle(frame.x, frame.y, frame.width, frame.height);
-      return acc;
-    }, {});
+  public applyFrame = async (
+    frame: string,
+    toObject: Phaser.GameObjects.Components.Size &
+      Phaser.GameObjects.Components.Origin &
+      Phaser.GameObjects.Components.Texture,
+  ) => {
+    // Frame already exists; apply the texture/frame and exit
+    if (this.hasFrame(frame)) {
+      toObject.setTexture(this.textureKey, frame);
+    }
+
+    // Frame is not loaded/ready - load it into memory, apply it, and then resize the object to fit
+    await this.addFrame(frame);
+    toObject.setTexture(this.textureKey, frame);
+    this.sizeObjectToFrame(toObject);
   };
+
+  // Factory API -----------------------------------------------------------------------------------
+
+  /**
+   * Factory functions to create new Images, Sprites, etc.
+   *
+   * All functions return native Phaser classes and are simply just a means for easy integration
+   * with this LiveAtlas.
+   */
+  public make = {
+    image: (x: number, y: number, frame: string): Phaser.GameObjects.Image => {
+      // const hasFrameAlready = this.hasFrame(frame);
+      // If we already have this frame loaded, we don't need to worry about any of the following
+      // procedure around loading the frame and adjusting the image's size/origin.
+      // if (hasFrameAlready) {
+      //   const img = this.scene.add.image(x, y, this.textureKey, frame);
+      //   this.applyFrame(frame, img);
+      //   return img;
+      // }
+
+      // Register `frame` as a texture on this frame immediately
+      // (This prevents `frame missing` warnings in console.)
+      this.maybeRegisterEmptyFrame(frame);
+
+      // The actual image to be returned. Note at this point the frame is either loaded or pointing
+      // at a 1x1 transparent pixel.
+      const img = this.scene.add.image(x, y, this.textureKey, frame);
+
+      // Wee bit of a hack to track if the origin of this object has had its depth changed since instantiation
+      // This is used to conditionally call `setOriginFromFrame` in a moment after the frame has updated.
+      img.setOrigin(-1, -1);
+
+      // Actually load the frame - if necessary - and then ensure that `img` has proper sizing/orientation.
+      this.addFrame(frame, true).then(() => {
+        console.log("frame is finally loaded", frame);
+        this.sizeObjectToFrame(img);
+      });
+
+      return img;
+    },
+  } as const;
+
+  // Serialization + Storage API -------------------------------------------------------------------
 
   /**
    * Seri
    */
-  public exportSerializedData = async (): Promise<SerializedAtlas> => {
+  private exportSerializedData = async (): Promise<SerializedAtlas> => {
     const imgDataSource = this.rt.texture.getSourceImage();
     let url;
 
@@ -591,7 +669,7 @@ export class LiveAtlas {
   /**
    * [importExistingAtlas description]
    */
-  public importExistingAtlas = async (
+  private importExistingAtlas = async (
     frames: {
       [imageUrl: string]: {
         width: number;
@@ -665,70 +743,53 @@ export class LiveAtlas {
       );
     });
   };
-
   /**
-   * [showDebugTexture description]
+   * [serializeFrames description]
    */
-  public showDebugTexture = async () => {
-    const data = await this.exportSerializedData();
-    const src = data.image;
-    const img = new Image();
-    img.src = src;
-    document.body.appendChild(img);
+  private serializeFrames = () => {
+    return Object.keys(this.frames).reduce<{
+      [imageUrl: string]: {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+      };
+    }>((acc, frameUrl) => {
+      const frame = this.frames[frameUrl];
+      if (!frame) {
+        return acc;
+      }
+      acc[frameUrl] = {
+        x: frame.x,
+        y: frame.y,
+        width: frame.width,
+        height: frame.height,
+      };
+      return acc;
+    }, {});
   };
 
   /**
-   * Use this to ensure the texture has a crisp appearance when scaled/zoomed.
-   * By default, this is `false`, meaning the atlas texture is rendered in a smoother fashion.
+   * Converts serialized frames (POJOs) into `Phaser.Geom.Rectangle`s.
+   * This is primarily used when importing `frames`, probably from a serialized atlas.
    */
-  public setPixelArt = (isPixelArt: boolean) => {
-    this.rt.texture.setFilter(
-      isPixelArt ? Phaser.Textures.FilterMode.NEAREST : Phaser.Textures.FilterMode.LINEAR,
-    );
-    return this;
+  private deserializeFrames = (incomingFrames: {
+    [imageUrl: string]: {
+      width: number;
+      height: number;
+      x: number;
+      y: number;
+    };
+  }) => {
+    return Object.keys(incomingFrames).reduce<typeof this.frames>((acc, frameUrl) => {
+      const frame = incomingFrames[frameUrl];
+      if (!frame) {
+        return acc;
+      }
+      acc[frameUrl] = new Phaser.Geom.Rectangle(frame.x, frame.y, frame.width, frame.height);
+      return acc;
+    }, {});
   };
-
-  // -----------------------------------------------------------------------------------------------
-
-  /**
-   * Factory functions to create new Images, Sprites, etc.
-   *
-   * All functions return native Phaser classes and are simply just a means for easy integration
-   * with this LiveAtlas.
-   */
-  public make = {
-    image: (x: number, y: number, frame: string): Phaser.GameObjects.Image => {
-      // Register `frame` as a texture on this frame immediately
-      // (This prevents `frame missing` warnings in console.)
-      this.maybeRegisterEmptyFrame(frame);
-
-      // The actual image to be returned. Note at this point the frame is either loaded or pointing
-      // at a 1x1 transparent pixel.
-      const img = this.scene.add.image(x, y, this.textureKey, frame);
-
-      // Wee bit of a hack to track if the origin of this object has been
-      img.setOrigin(-1, -1);
-
-      // Actually load the frame - if necessary - and then ensure that `img` has proper sizing/orientation.
-      this.addFrame(frame, true).then(function () {
-        const imgOriginX = img.originX;
-        const imgOriginY = img.originY;
-
-        img.setSizeToFrame(img.frame);
-        if (imgOriginX !== -1) {
-          // If the origin is still at -1, that means a dev hasn't touched it,
-          // and we can roll forward with the default behavior of adjusting the origin
-          // to match the new frame.
-          img.setOriginFromFrame();
-        } else {
-          // Re-apply the origin now that it has changed with the resize
-          img.setOrigin(imgOriginX, imgOriginY);
-        }
-      });
-
-      return img;
-    },
-  } as const;
 
   /**
    * Serialization functions to export data and save it to the local machine.
@@ -833,7 +894,8 @@ export class LiveAtlas {
 
       try {
         await this.importExistingAtlas(parsedData.frames, parsedData.image, parsedData.packerData);
-        this.setRepackFlag();
+        // Don't need to set the repack flag here because all saved atlases _should_ be packed already.
+        // If not, there is `repack(true)` to force a repack anyway.
       } catch (err) {
         return false;
       }
@@ -947,6 +1009,14 @@ export class LiveAtlas {
     },
 
     /**
+     * Returns the given amount of bytes in more human-readable terms, changing the units if necessary.
+     * ex: "100 Bytes", "1.0 KB", "117.7 MB" etc
+     */
+    convertBytesToHuman: (bytes: number) => {
+      return convertBytesToHumanReadable(bytes);
+    },
+
+    /**
      * Frees any stored data associated with the given storage key.
      * This wipes out the browser's local, session, and IDB storages.
      */
@@ -956,4 +1026,35 @@ export class LiveAtlas {
       await LocalBlobCache.freeBlob(storageKey);
     },
   } as const;
+
+  /**
+   * Resizes a given object to fit the current frame it is assigned to.
+   * This also takes origin into account and ensures that the same anchor point persists after resizing.
+   *
+   * This is primarily used after `addFrame` resolves to ensure that atlas-based objects have the
+   * correct dimensions applied based on whatever just loaded.
+   */
+  private sizeObjectToFrame(
+    img: Phaser.GameObjects.Components.Size &
+      Phaser.GameObjects.Components.Origin &
+      Phaser.GameObjects.Components.Texture,
+  ) {
+    // Grab the current origins in case we need to put them back
+    const imgOriginX = img.originX;
+    const imgOriginY = img.originY;
+
+    // Update the frame size to match the currently loaded texture
+    img.setSizeToFrame(img.frame);
+
+    // If the origin is still at -1, this means a dev has not called `setOrigin` on this image yet.
+    // This means that we need to deterine the origin from the new frame size.
+    if (imgOriginX === -1 && imgOriginY === -1) {
+      img.setOriginFromFrame();
+    } else {
+      // If the origin is anything other than -1, we want to just re-apply the origin previously
+      // set by the dev. This effectively means the frame will scale to the correct size, but the
+      // given `img` will still obey the last `setOrigin` call.
+      img.setOrigin(imgOriginX, imgOriginY);
+    }
+  }
 }
