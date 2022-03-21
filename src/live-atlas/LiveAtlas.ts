@@ -1,8 +1,15 @@
 import { trimImageEdges } from "./lib/imageTrimming";
-import { loadIntoPhaser as asyncLoader } from "./lib/asyncLoader";
+import { loadViaPhaserLoader, loadViaTextureManager } from "./lib/asyncLoader";
 // import { Atlas } from "./AtlasTypes";
 import LocalBlobCache from "./lib/LocalBlobCache";
 import ShelfPack, { Shelf } from "./lib/ShelfPack";
+import saveToDisk from "./lib/saveToDisk";
+
+/**
+ * Controller for writing to the user's IndexedDB. This allows us to store arbitrary blobs of data to
+ * the machine's local storage without worrying about the ~5mb limit that comes with `localStorage`.
+ */
+const localCache = new LocalBlobCache("live-atlas");
 
 /**
  * Given a number of bytes, returns a human-readable, simplified representation of the value.
@@ -97,6 +104,16 @@ export class LiveAtlas {
   }
   public get textureKey(): string {
     return "live-atlas-" + this.id;
+  }
+
+  /**
+   * Toggle the visibility of the compiled render texture so it appears in its parent scene.
+   * This is primarily useful for debugging issues with the LiveAtlas. You can access the displayed
+   * atlas via the `liveAtlas.renderTexture` property.
+   */
+  public setDebugVisible(visible: boolean) {
+    this.rt.setVisible(visible);
+    return this;
   }
 
   // ---- Standard lifecycle events
@@ -196,7 +213,13 @@ export class LiveAtlas {
     this.setRepackFlag();
   }
 
-  // private processingFrames: { [frame: string]: Promise<void> } = {};
+  public async addMultipleFramesByURL(textureUrls: string[], force = false) {
+    const proms: Promise<void>[] = [];
+    for (const url of textureUrls) {
+      proms.push(this.addFrameByURL(url, url, force));
+    }
+    return Promise.all(proms);
+  }
 
   /**
    * [async description]
@@ -205,64 +228,64 @@ export class LiveAtlas {
    *
    * @return  {[]}                    [return description]
    */
-  public async addFrame(textureKey: string | string[], force = false) {
-    if (!(textureKey instanceof Array)) {
-      textureKey = [textureKey];
+  public async addFrameByURL(textureUrl: string, textureKey?: string, force = false) {
+    textureKey = textureKey ?? textureUrl;
+    if (!textureKey || (!force && this.frames[textureKey])) {
+      return;
+    }
+    // set this frame to render nothing at first - when it's loaded it will automatically update
+    this.maybeRegisterEmptyFrame(textureKey);
+
+    // Check for data-uris
+    const isDataURI = textureUrl.startsWith("data:image");
+
+    // load `textureKey` as an image/texture
+    try {
+      if (isDataURI) {
+        await loadViaTextureManager(this.scene, textureKey, textureUrl);
+      } else {
+        await loadViaPhaserLoader(textureKey, this.scene.load.image(textureKey, textureUrl));
+      }
+    } catch (err) {
+      console.log("error loading image", err);
+      return; // stop processing frame, move to next
     }
 
-    for (let i = 0; i < textureKey.length; i++) {
-      const currentFrame = textureKey[i];
-      if (!currentFrame || (!force && this.frames[currentFrame])) {
-        continue;
-      }
-      // set this frame to render nothing at first - when it's loaded it will automatically update
-      this.maybeRegisterEmptyFrame(currentFrame);
+    // get its dimensions (somehow..)
+    const frame = this.rt.scene.textures.getFrame(textureKey);
+    const imgTexture = this.rt.scene.textures.get(textureKey);
 
-      // load `textureKey` as an image/texture
-      try {
-        await asyncLoader(currentFrame, this.scene.load.image(currentFrame, currentFrame));
-        // this.processingFrames[currentFrame] = loadingPromise;
-        // await loadingPromise;
-      } catch (err) {
-        console.log("error loading image", err);
-        continue; // stop processing frame, move to next
-      }
-
-      // get its dimensions (somehow..)
-      const frame = this.rt.scene.textures.getFrame(currentFrame);
-      const imgTexture = this.rt.scene.textures.get(currentFrame);
-
-      if (!frame) {
-        console.warn("LiveAtlas : no frame found after importing to Phaser!", currentFrame);
-        this.rt.scene.textures;
-        debugger;
-        continue;
-      }
-
-      const trimFraming = this.trimFrame(currentFrame);
-      if (trimFraming) {
-        frame.setTrim(
-          frame.cutWidth,
-          frame.cutHeight,
-          trimFraming.x,
-          trimFraming.y,
-          trimFraming.trimmedWidth,
-          trimFraming.trimmedHeight,
-        );
-      }
-
-      const dimensions = {
-        width: frame.width,
-        height: frame.height,
-        trim: trimFraming,
-      };
-
-      // add this to the render texture
-      this.packNewFrame(currentFrame, dimensions);
-
-      // remove the texture now that it's in the RT
-      this.scene.textures.remove(imgTexture);
+    if (!frame) {
+      console.warn("LiveAtlas : no frame found after importing to Phaser!", textureKey);
+      // this happens when multiple calls to `addFrame` for the same texture are called around the same time
+      // the first call will resolve and delete the texture, the following calls will reach this point
+      // and error out
+      return;
     }
+
+    const trimFraming = this.trimFrame(textureKey);
+    if (trimFraming) {
+      frame.setTrim(
+        trimFraming.originalWidth,
+        trimFraming.originalHeight,
+        trimFraming.x,
+        trimFraming.y,
+        trimFraming.trimmedWidth,
+        trimFraming.trimmedHeight,
+      );
+    }
+
+    const dimensions = {
+      width: trimFraming?.trimmedWidth ?? frame.realWidth,
+      height: trimFraming?.trimmedHeight ?? frame.realHeight,
+      trim: trimFraming,
+    };
+
+    // add this to the render texture
+    this.packNewFrame(textureKey, dimensions);
+
+    // remove the texture now that it's in the RT
+    this.scene.textures.remove(imgTexture);
   }
 
   /**
@@ -319,15 +342,20 @@ export class LiveAtlas {
     // (The texture at `key` has not been modified - we've only examined it for transparency.)
     const trimX = dimensions?.trim?.x || 0;
     const trimY = dimensions?.trim?.y || 0;
+    const originalWidth = dimensions?.trim?.originalWidth || packedFrame.width;
+    const originalHeight = dimensions?.trim?.originalHeight || packedFrame.height;
+
+    const trimmedWidth = dimensions?.trim?.trimmedWidth || packedFrame.width;
+    const trimmedHeight = dimensions?.trim?.trimmedHeight || packedFrame.height;
     this.rt.draw(key, packedFrame.x - trimX, packedFrame.y - trimY);
 
     // The frame itself here already takes the trim and everything into account,
     // so we can insert it "as-is".
-    const existingFrame = this.rt.texture.get(key);
+    let existingFrame = this.rt.texture.get(key);
     if (existingFrame) {
       existingFrame.setSize(packedFrame.width, packedFrame.height, packedFrame.x, packedFrame.y);
     } else {
-      this.rt.texture.add(
+      existingFrame = this.rt.texture.add(
         key,
         0,
         packedFrame.x,
@@ -336,6 +364,8 @@ export class LiveAtlas {
         packedFrame.height,
       );
     }
+
+    existingFrame.setTrim(originalWidth, originalHeight, trimX, trimY, trimmedWidth, trimmedHeight);
 
     this.scene.textures.remove(key);
 
@@ -352,7 +382,6 @@ export class LiveAtlas {
     this.frames[frame] = new Phaser.Geom.Rectangle(0, 0, 1, 1);
     this.rt.texture.add(frame, 0, 0, 0, 1, 1);
   }
-
   /**
    * uses binpacking on the registered frames and then redraws the underlying render texture for optimal sizing
    */
@@ -574,7 +603,7 @@ export class LiveAtlas {
     }
 
     // Frame is not loaded/ready - load it into memory, apply it, and then resize the object to fit
-    await this.addFrame(frame);
+    await this.addFrameByURL(frame);
     toObject.setTexture(this.textureKey, frame);
     this.sizeObjectToFrame(toObject);
   };
@@ -611,8 +640,8 @@ export class LiveAtlas {
       img.setOrigin(-1, -1);
 
       // Actually load the frame - if necessary - and then ensure that `img` has proper sizing/orientation.
-      this.addFrame(frame, true).then(() => {
-        console.log("frame is finally loaded", frame);
+      this.addFrameByURL(frame, frame, true).then(() => {
+        // console.log("frame is finally loaded", frame);
         this.sizeObjectToFrame(img);
       });
 
@@ -841,7 +870,7 @@ export class LiveAtlas {
       // Serialize the data to strings
       const data = await this.save.toJSON();
       // Save the data as a `Blob` to indexeddb. (This allows us to store files of 500+ mb)
-      await LocalBlobCache.saveBlob(storageKey, data);
+      await localCache.saveBlob(storageKey, data);
     },
 
     /**
@@ -867,6 +896,11 @@ export class LiveAtlas {
         }
       }
     },
+
+    toDiskFile: async (storageKey: string = this.textureKey) => {
+      const json = await this.save.toJSON();
+      return saveToDisk(json, storageKey + ".atlas");
+    },
   } as const;
 
   /**
@@ -886,9 +920,11 @@ export class LiveAtlas {
       try {
         parsedData = JSON.parse(json);
         if (!parsedData || !parsedData.frames || !parsedData.image) {
+          console.log("parsed data missing something:", typeof parsedData);
           return false;
         }
       } catch (err) {
+        console.log("err parsing from json", err);
         return false;
       }
 
@@ -897,9 +933,10 @@ export class LiveAtlas {
         // Don't need to set the repack flag here because all saved atlases _should_ be packed already.
         // If not, there is `repack(true)` to force a repack anyway.
       } catch (err) {
+        console.log("Error importing existing atlas..", err);
         return false;
       }
-
+      console.log("JSON successfully imported!");
       return true;
     },
     /**
@@ -925,7 +962,7 @@ export class LiveAtlas {
      * of this atlas.
      */
     fromIndexedDB: async (storageKey: string = this.textureKey) => {
-      const data = await LocalBlobCache.loadBlob(storageKey);
+      const data = await localCache.loadBlob(storageKey);
       if (!data || data instanceof Blob) {
         // Data should not be a Blob, as we always store strings for this atlas data.
         return false;
@@ -959,6 +996,24 @@ export class LiveAtlas {
         }
       }
     },
+
+    fromBlob: async (data: Blob) => {
+      let json = await localCache.convertBinaryToText(data);
+      if (!json) {
+        // Data should not be a Blob, as we always store strings for this atlas data.
+        return false;
+      }
+      return this.load.fromJSON(json);
+    },
+
+    fromDiskFile: async (data: File | Blob | string) => {
+      if (typeof data === "string") {
+        return await this.load.fromJSON(data);
+      } else if (data instanceof File || data instanceof Blob) {
+        return this.load.fromBlob(data);
+      }
+      return false;
+    },
   } as const;
 
   /**
@@ -989,7 +1044,7 @@ export class LiveAtlas {
      * Note that this measures the _stored_ data and will return `0` if no data has not yet been saved.
      */
     getStoredSize: async (storageKey: string = this.textureKey) => {
-      const data = await LocalBlobCache.loadBlob(storageKey);
+      const data = await localCache.loadBlob(storageKey);
       if (!data) {
         return 0;
       }
@@ -1023,7 +1078,7 @@ export class LiveAtlas {
     freeStoredData: async (storageKey = this.textureKey) => {
       localStorage.removeItem(storageKey);
       sessionStorage.removeItem(storageKey);
-      await LocalBlobCache.freeBlob(storageKey);
+      await localCache.freeBlob(storageKey);
     },
   } as const;
 

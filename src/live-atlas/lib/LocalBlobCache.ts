@@ -1,18 +1,18 @@
-const DB_NAME = "phaser-indexeddb-test";
+const DB_NAME = "phaser-live-atlas-storage";
 const DB_VERSION = 1; // Use a long long for this value (don't use a float)
-const DB_STORE_NAME = "cached-images";
+const DB_STORE_NAME = "cached-atlas-data";
 
 type StoredBlob = { type: "blob" | "json"; data: Blob };
 
-class LocalBlobCache {
+export default class LocalBlobCache {
   private db?: IDBDatabase;
 
-  constructor() {
-    this.connectToCache();
+  constructor(cacheName = DB_NAME) {
+    this.connectToCache(cacheName);
   }
 
-  private connectToCache = () => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+  private connectToCache = (dbName: string) => {
+    const req = indexedDB.open(dbName, DB_VERSION);
     req.onsuccess = (_evt) => {
       this.db = req.result;
     };
@@ -89,6 +89,10 @@ class LocalBlobCache {
     });
   };
 
+  public async convertBinaryToText(blob:Blob|File) {
+    return new Response(blob).text();
+  }
+
   public loadBlob = async (id: string): Promise<void | Blob | string> => {
     if (!this.db) {
       return;
@@ -112,8 +116,7 @@ class LocalBlobCache {
           const { data, type } = req.result;
           if (type === "json") {
             // Get text from blob
-            new Response(data)
-              .text()
+            this.convertBinaryToText(data)
               .then((str) => {
                 res(str);
               })
@@ -126,5 +129,3 @@ class LocalBlobCache {
     });
   };
 }
-
-export default new LocalBlobCache();

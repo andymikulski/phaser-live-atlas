@@ -15,7 +15,7 @@ import Phaser from "phaser";
  *
  * Note you can use `scene.load.audio`, `scene.load.svg`, etc. as needed.
  */
-export const loadIntoPhaser = (loadKey: string, loaderPlugin: Phaser.Loader.LoaderPlugin) => {
+export const loadViaPhaserLoader = (loadKey: string, loaderPlugin: Phaser.Loader.LoaderPlugin) => {
   return new Promise<void>((resolve, reject) => {
     // Utility function to generate listeners for file lifecycle events
     function makeHandler(callbackFn: VoidFunction) {
@@ -44,5 +44,41 @@ export const loadIntoPhaser = (loadKey: string, loaderPlugin: Phaser.Loader.Load
 
     // Loaders don't start outside of `preload` unless explicitly triggered
     loaderPlugin.start();
+  });
+};
+
+export const loadViaTextureManager = (
+  scene: Phaser.Scene,
+  textureKey: string,
+  textureDataUri: string,
+) => {
+  return new Promise<void>((resolve, reject) => {
+    // Utility function to generate listeners for file lifecycle events
+    function makeHandler(callbackFn: VoidFunction) {
+      return function (key: string, _type: never, _info: never) {
+        console.log("via texture man handler", key);
+        if (key === textureKey) {
+          removeBindings(); // Ensure nothing else fires for this key
+          callbackFn();
+        }
+      };
+    }
+    // Define handlers used for this specific key
+    const completeHandler = makeHandler(resolve);
+    const failureHandler = makeHandler(reject);
+
+    // Utility to remove bindings when an event fires
+    function removeBindings() {
+      scene.textures
+        .off(Phaser.Textures.Events.ADD, completeHandler) // remove success
+        .off(Phaser.Textures.Events.ERROR, failureHandler); // remove failure
+    }
+
+    // Actually bind handlers
+    scene.textures
+      .on(Phaser.Textures.Events.ADD, completeHandler) // Handle success
+      .on(Phaser.Textures.Events.ERROR, failureHandler); // Handle failure
+
+    scene.textures.addBase64(textureKey, textureDataUri);
   });
 };
