@@ -1,6 +1,5 @@
 import { trimImageEdges } from "./lib/imageTrimming";
 import { loadViaPhaserLoader, loadViaTextureManager } from "./lib/asyncLoader";
-// import { Atlas } from "./AtlasTypes";
 import LocalBlobCache from "./lib/LocalBlobCache";
 import ShelfPack, { Shelf } from "./lib/ShelfPack";
 
@@ -958,7 +957,7 @@ export class LiveAtlas {
      *
      * Note: This requires DOM APIs and will not work in node/headless environments!
      */
-    toDiskFile: async (storageKey: string = this.textureKey, extension: string = "atlas") => {
+    toDiskFile: async (storageKey: string = this.textureKey, extension = "atlas") => {
       const json = await this.save.toJSON();
 
       const link = document.createElement("a");
