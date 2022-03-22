@@ -3,7 +3,6 @@ import { loadViaPhaserLoader, loadViaTextureManager } from "./lib/asyncLoader";
 // import { Atlas } from "./AtlasTypes";
 import LocalBlobCache from "./lib/LocalBlobCache";
 import ShelfPack, { Shelf } from "./lib/ShelfPack";
-import saveToDisk from "./lib/saveToDisk";
 
 /**
  * Controller for writing to the user's IndexedDB. This allows us to store arbitrary blobs of data to
@@ -230,7 +229,7 @@ export class LiveAtlas {
    */
   public async addFrameByURL(textureUrl: string, textureKey?: string, force = false) {
     textureKey = textureKey ?? textureUrl;
-    if (!textureKey || (!force && this.frames[textureKey])) {
+    if (!textureUrl || (!force && (!textureKey || this.frames[textureKey]))) {
       return;
     }
     // set this frame to render nothing at first - when it's loaded it will automatically update
@@ -251,7 +250,7 @@ export class LiveAtlas {
       return; // stop processing frame, move to next
     }
 
-    // get its dimensions (somehow..)
+    // get its dimensions
     const frame = this.rt.scene.textures.getFrame(textureKey);
     const imgTexture = this.rt.scene.textures.get(textureKey);
 
@@ -618,7 +617,7 @@ export class LiveAtlas {
    */
   public make = {
     image: (x: number, y: number, frame: string): Phaser.GameObjects.Image => {
-      // const hasFrameAlready = this.hasFrame(frame);
+      const hasFrameAlready = this.hasFrame(frame);
       // If we already have this frame loaded, we don't need to worry about any of the following
       // procedure around loading the frame and adjusting the image's size/origin.
       // if (hasFrameAlready) {
@@ -640,7 +639,7 @@ export class LiveAtlas {
       img.setOrigin(-1, -1);
 
       // Actually load the frame - if necessary - and then ensure that `img` has proper sizing/orientation.
-      this.addFrameByURL(frame, frame, true).then(() => {
+      this.addFrameByURL(frame, frame, !hasFrameAlready).then(() => {
         // console.log("frame is finally loaded", frame);
         this.sizeObjectToFrame(img);
       });
@@ -765,7 +764,9 @@ export class LiveAtlas {
 
           // Remofve the base64 texture since it's now in the RT
           this.scene.textures.remove(key);
-          this.setRepackFlag();
+
+          // Imports should not trigger repacks unless further edits are made
+          this.clearRepackFlag();
 
           res();
         },
@@ -899,7 +900,15 @@ export class LiveAtlas {
 
     toDiskFile: async (storageKey: string = this.textureKey) => {
       const json = await this.save.toJSON();
-      return saveToDisk(json, storageKey + ".atlas");
+      // return localCache.saveBlobToDisk(json, storageKey + ".atlas");
+
+      const a = document.createElement("a");
+      let contents = JSON.stringify(json);
+      const file = new Blob([contents], { type: "text/plain" });
+      a.href = URL.createObjectURL(file);
+      a.download = storageKey + ".atlas";
+      // Triggers a download at the browser level for a text file
+      a.click();
     },
   } as const;
 
@@ -920,11 +929,9 @@ export class LiveAtlas {
       try {
         parsedData = JSON.parse(json);
         if (!parsedData || !parsedData.frames || !parsedData.image) {
-          console.log("parsed data missing something:", typeof parsedData);
           return false;
         }
       } catch (err) {
-        console.log("err parsing from json", err);
         return false;
       }
 
@@ -933,7 +940,6 @@ export class LiveAtlas {
         // Don't need to set the repack flag here because all saved atlases _should_ be packed already.
         // If not, there is `repack(true)` to force a repack anyway.
       } catch (err) {
-        console.log("Error importing existing atlas..", err);
         return false;
       }
       console.log("JSON successfully imported!");
@@ -1013,6 +1019,17 @@ export class LiveAtlas {
         return this.load.fromBlob(data);
       }
       return false;
+    },
+
+    fromNetworkRequest: async (url: RequestInfo, opts?: RequestInit) => {
+      try {
+        await fetch(url, opts)
+          .then((x) => x.blob())
+          .then((x) => this.load.fromDiskFile(x));
+      } catch (err) {
+        return false;
+      }
+      return true;
     },
   } as const;
 

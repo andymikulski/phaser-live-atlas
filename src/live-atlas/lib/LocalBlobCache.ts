@@ -89,7 +89,7 @@ export default class LocalBlobCache {
     });
   };
 
-  public async convertBinaryToText(blob:Blob|File) {
+  public async convertBinaryToText(blob: Blob | File) {
     return new Response(blob).text();
   }
 
