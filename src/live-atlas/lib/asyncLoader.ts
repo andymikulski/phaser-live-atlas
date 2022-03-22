@@ -52,14 +52,13 @@ export const loadViaTextureManager = (
   textureKey: string,
   textureDataUri: string,
 ) => {
-  return new Promise<void>((resolve, reject) => {
+  return new Promise<Phaser.Textures.Texture>((resolve, reject) => {
     // Utility function to generate listeners for file lifecycle events
-    function makeHandler(callbackFn: VoidFunction) {
-      return function (key: string, _type: never, _info: never) {
-        console.log("via texture man handler", key);
+    function makeHandler(callbackFn: (t: Phaser.Textures.Texture) => void) {
+      return function (key: string, texture: Phaser.Textures.Texture) {
         if (key === textureKey) {
           removeBindings(); // Ensure nothing else fires for this key
-          callbackFn();
+          callbackFn(texture);
         }
       };
     }

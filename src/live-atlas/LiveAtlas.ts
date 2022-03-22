@@ -212,6 +212,12 @@ export class LiveAtlas {
     this.setRepackFlag();
   }
 
+  /**
+   * Same as `addFrameByURL` but handles an input array of URLs/URIs.
+   * Returns a promise which resolves only when all given URLs have loaded (or rejected their requests).
+   *
+   * For more information, see `addFrameByURL`.
+   */
   public async addMultipleFramesByURL(textureUrls: string[], force = false) {
     const proms: Promise<void>[] = [];
     for (const url of textureUrls) {
@@ -221,11 +227,21 @@ export class LiveAtlas {
   }
 
   /**
-   * [async description]
+   * Add a new frame to this atlas via URL address or data-URI. If you're trying to add new items to
+   * this atlas, this is probably the function you want.
    *
-   * @param   {string[]}  textureKey  [textureKey description]
+   * By default, existing frames will not be overwritten. You can optionally pass `true` for the `force`
+   * parameter to ignore this restriction and overwrite any previously registered frames.
    *
-   * @return  {[]}                    [return description]
+   * _Also see: `addMultipleFramesByURL` for handling an array of URLs/URIs._
+   *
+   *
+   * This will:
+   * - Make a network request to get the target texture
+   * - Load the texture into Phaser
+   * - Trim transparency from the image
+   * - Pack the frame into the atlas
+   * - Draw the new frame into the atlas accordingly
    */
   public async addFrameByURL(textureUrl: string, textureKey?: string, force = false) {
     textureKey = textureKey ?? textureUrl;
@@ -288,8 +304,9 @@ export class LiveAtlas {
   }
 
   /**
-   * Ensures there is at least this many pixels between frames.
-   * (Gaps in the atlas may mean that there are more than `framePadding` pixels in some cases.)
+   * Given a frame key and dimensions for that frame, packs it into the existing atlas.
+   * The atlas may need to resize - which it will handle automatically - and afterward will flag
+   * itself as being in need of repacking.
    */
   private packNewFrame = (
     key: string,
@@ -372,6 +389,10 @@ export class LiveAtlas {
     this.setRepackFlag();
   };
 
+  /**
+   * Given a frame name, _maybe_ adds it to the atlas. If the frame already exists, nothing happens.
+   * If the frame does NOT exist, then a new 1px by 1px frame is added to the texture.
+   */
   private maybeRegisterEmptyFrame(frame: string) {
     const existingFrame = this.rt.texture.has(frame);
     if (existingFrame) {
@@ -382,7 +403,13 @@ export class LiveAtlas {
     this.rt.texture.add(frame, 0, 0, 0, 1, 1);
   }
   /**
-   * uses binpacking on the registered frames and then redraws the underlying render texture for optimal sizing
+   * Uses binpacking on the registered atlas frames and then redraws the render texture to use
+   * the more optimal layout. Frames associated with the atlas are automatically updated accordingly
+   * and any spare space is trimmed to reduce memory consumption.
+   *
+   * By default, `repack()` will check this atlas's repack flag to ensure that it actually needs to be
+   * packed again. This helps reduce unnecessary work, but if you can optionally pass `true` and force
+   * the repack to happen regardless of the flag status.
    */
   public repack = (force = false) => {
     // Ignore repacks, unless forced
@@ -453,15 +480,24 @@ export class LiveAtlas {
     return this;
   };
 
+  /**
+   * Mark that this atlas is due for a repack in the future.
+   */
   private setRepackFlag = () => {
     this.requiresRepack = true;
   };
+
+  /**
+   * Mark that this atlas has already been packed and should not do anything if `repack()`
+   * is called on this atlas.
+   */
   private clearRepackFlag = () => {
     this.requiresRepack = false;
   };
 
   /**
-   * resizes the internal texture, ensuring image data remains the same afterwards
+   * Resizes the internal texture, ensuring image data remains the same afterwards.
+   * This is mostly used when the atlas needs to grow to accommodate new frames.
    */
   private resizeTexture = (width: number, height: number) => {
     this.preserveTextureState();
@@ -472,7 +508,8 @@ export class LiveAtlas {
   };
 
   /**
-   * [getBackbuffer description]
+   * Creates a `backbuffer` render texture, if necessary, and returns it.
+   * This is used primarily for transferring texture state when we need to i.e. resize the internal render texture.
    */
   private getBackbuffer = () => {
     if (!this.backbuffer) {
@@ -485,7 +522,8 @@ export class LiveAtlas {
   };
 
   /**
-   * makes a copy of the current internal texture data, preserving registered frame information
+   * Makes a copy of the current internal texture data, preserving registered frame information,
+   * and ensures the `backbuffer` is able to restore the current atlas image/state in future operations.
    */
   private preserveTextureState = () => {
     // create backbuffer if needed
@@ -514,7 +552,8 @@ export class LiveAtlas {
   };
 
   /**
-   * [restoreTextureState description]
+   * Transfers the `backbuffer` contents to the render texture of this atlas.
+   * As a side effect, will call `freePreservedState` when complete in order to help keep memory usage low.
    */
   private restoreTextureState = () => {
     // if no backbuffer, exit
@@ -530,7 +569,7 @@ export class LiveAtlas {
   };
 
   /**
-   * [freePreservedState description]
+   * Clears any preserved state from the `backbuffer`, used when resizing the internal render texture.
    */
   private freePreservedState = () => {
     // if no backbuffer, exit
@@ -545,18 +584,20 @@ export class LiveAtlas {
     for (const frame of existingFrames) {
       this.backbuffer.texture.remove(frame);
     }
-
-    // destroy backbuffer? maybe? check perf to see if it's worth it to pool this instance
   };
 
   /**
-   * [drawPreservedFrame description]
+   * Given a frame `key` and a position to draw that frame, draws whatever is on the `backbuffer`
+   * for onto the render texture for this atlas.
    *
-   * @param   {string}  key  [key description]
-   * @param   {number}  x    [x description]
-   * @param   {number}  y    [y description]
+   * Basically, the order of events is as such:
+   * - `preserveTextureState();`
+   * - `doSomeWork_and_clearRTandSuch();`
+   * - `drawPreservedFrame('my-old-frame', x, y);` <---
+   * - `freePreservedState();
    *
-   * @return  {[type]}       [return description]
+   * This function will take a previously preserved frame and draw it to the current atlas.
+   * This is used when restoring a preserved atlas state - probably when resizing the RT.
    */
   private drawPreservedFrame = (key: string | number, x: number, y: number) => {
     // if no backbuffer, exit/warn
@@ -695,7 +736,8 @@ export class LiveAtlas {
   };
 
   /**
-   * [importExistingAtlas description]
+   * Replaces the contents of this atlas with incoming data.
+   * This is primarily used by the `load` methods.
    */
   private importExistingAtlas = async (
     frames: {
@@ -710,8 +752,11 @@ export class LiveAtlas {
     packerData: string,
   ) => {
     const key = this.textureKey + "-import-" + Math.random();
+
+    // Update frames
     this.frames = this.deserializeFrames(frames);
 
+    // Add frames to the texture
     for (const frameUrl in this.frames) {
       const frame = this.frames[frameUrl];
       if (!frame) {
@@ -720,9 +765,13 @@ export class LiveAtlas {
       this.rt.texture.add(frameUrl, 0, frame.x, frame.y, frame.width, frame.height);
     }
 
+    // Update the packer to reflect the state it was in when serialized
     const incomingPacker = JSON.parse(packerData);
     this.packer = new ShelfPack(1, 1, true);
+
+    // Basically just replace all of the packer properties with what was saved
     for (const key in incomingPacker) {
+      // `shelves` in particular need some massaging into the proper classes and types.
       if (key === "shelves") {
         for (let i = 0; i < incomingPacker[key].length; i++) {
           const incomingShelf = incomingPacker[key][i];
@@ -732,6 +781,7 @@ export class LiveAtlas {
           this.packer.shelves.push(shelf);
         }
       } else {
+        // Every field other than `shelves` will just be replaced.
         if (this.packer.hasOwnProperty(key)) {
           // @ts-expect-error
           this.packer[key] = incomingPacker[key];
@@ -739,42 +789,46 @@ export class LiveAtlas {
       }
     }
 
-    this.scene.textures.addBase64(key, imageUri);
+    // Actually the load the base64-encoded image into Phaser via the TextureManager.
+    let texture;
+    try {
+      texture = await loadViaTextureManager(this.scene, key, imageUri);
+    } catch (err) {
+      console.log("Error importing serialized atlas image..", err);
+      return;
+    }
 
-    return new Promise<void>((res, rej) => {
-      this.scene.textures.on(
-        Phaser.Textures.Events.LOAD,
-        (key: string, texture: Phaser.Textures.Texture) => {
-          // Phaser vaguely types `texture.frames` as `object`. We augment the types here accordingly.
-          // eslint-disable-next-line
-          const textureFrames = texture.frames as {
-            [key: string]: Phaser.Textures.Frame;
-          };
+    // Phaser vaguely types `texture.frames` as `object`. We augment the types here accordingly.
+    // eslint-disable-next-line
+    const textureFrames = texture.frames as {
+      [key: string]: Phaser.Textures.Frame;
+    };
 
-          const frame = textureFrames[texture.firstFrame];
-          if (!frame) {
-            rej("LiveAtlas : could not find base frame when importing texture!");
-            return;
-          }
+    // Reference the _BASE frame so we can quickly determine the dimensions of this texture
+    const frame = textureFrames[texture.firstFrame];
+    if (!frame) {
+      // This shouldn't happen
+      console.warn("LiveAtlas : could not find base frame when importing texture!");
+      return;
+    }
 
-          // Scale the render texture and populate it with graphics
-          this.rt.clear();
-          this.rt.resize(frame.width, frame.height);
-          this.rt.draw(key, 0, 0, 1);
+    // Scale the render texture and populate it with graphics
+    this.rt.clear();
+    this.rt.resize(frame.width, frame.height);
+    this.rt.draw(key, 0, 0, 1);
 
-          // Remofve the base64 texture since it's now in the RT
-          this.scene.textures.remove(key);
+    // Remove the base64 texture since it's now in the RT
+    this.scene.textures.remove(key);
 
-          // Imports should not trigger repacks unless further edits are made
-          this.clearRepackFlag();
-
-          res();
-        },
-      );
-    });
+    // Imports should not trigger repacks unless further edits are made
+    this.clearRepackFlag();
   };
+
   /**
-   * [serializeFrames description]
+   * Converts this atlases's `frames` property into a set of objects with shape:
+   *   `{ x: number; y: number; width: number; height: number; }`
+   *
+   * This is primarily used when saving an atlas to a text/JSON format.
    */
   private serializeFrames = () => {
     return Object.keys(this.frames).reduce<{
@@ -898,17 +952,22 @@ export class LiveAtlas {
       }
     },
 
-    toDiskFile: async (storageKey: string = this.textureKey) => {
+    /**
+     * Converts this atlas into an `.atlas` file and then prompts the user to download the file
+     * via browser controls.
+     *
+     * Note: This requires DOM APIs and will not work in node/headless environments!
+     */
+    toDiskFile: async (storageKey: string = this.textureKey, extension: string = "atlas") => {
       const json = await this.save.toJSON();
-      // return localCache.saveBlobToDisk(json, storageKey + ".atlas");
 
-      const a = document.createElement("a");
-      let contents = JSON.stringify(json);
+      const link = document.createElement("a");
+      const contents = JSON.stringify(json);
       const file = new Blob([contents], { type: "text/plain" });
-      a.href = URL.createObjectURL(file);
-      a.download = storageKey + ".atlas";
+      link.href = URL.createObjectURL(file);
+      link.download = storageKey + "." + extension;
       // Triggers a download at the browser level for a text file
-      a.click();
+      link.click();
     },
   } as const;
 
@@ -1003,8 +1062,11 @@ export class LiveAtlas {
       }
     },
 
+    /**
+     * Imports a blob from a previously serialized atlas.
+     */
     fromBlob: async (data: Blob) => {
-      let json = await localCache.convertBinaryToText(data);
+      const json = await localCache.convertBinaryToText(data);
       if (!json) {
         // Data should not be a Blob, as we always store strings for this atlas data.
         return false;
@@ -1012,6 +1074,10 @@ export class LiveAtlas {
       return this.load.fromJSON(json);
     },
 
+    /**
+     * Imports the given file/blob/string from a previously serialized atlas.
+     * Use this when handling drag-n-drop files, or results from `fetch` (if not using `load.fromNetworkRequest`)
+     */
     fromDiskFile: async (data: File | Blob | string) => {
       if (typeof data === "string") {
         return await this.load.fromJSON(data);
@@ -1021,6 +1087,10 @@ export class LiveAtlas {
       return false;
     },
 
+    /**
+     * Use `fetch` to load a serialized atlas from a network source.
+     * Options can be provided to be passed into `fetch` if necessary (i.e. for cors settings).
+     */
     fromNetworkRequest: async (url: RequestInfo, opts?: RequestInit) => {
       try {
         await fetch(url, opts)
