@@ -162,9 +162,10 @@ export class LiveAtlas {
     this.cache.set(src, trimData);
     return trimData;
   };
-  private trimTexture = (textureKey: string, frameKey?: string) => {
-    const texture = this.rt.scene.textures.get(textureKey);
-    const src = texture.getSourceImage();
+
+  private trimTexture = (texture: string|Phaser.Textures.Texture, frameKey?: string) => {
+    const txt = typeof texture === 'string' ? this.rt.scene.textures.get(texture) : texture;
+    const src = txt.getSourceImage();
     if (src instanceof Phaser.GameObjects.RenderTexture) {
       return {
         x: 0,
@@ -177,8 +178,8 @@ export class LiveAtlas {
     }
     const imgData = this.getImageDataFromSource(src);
     if (frameKey) {
-      const frameData = texture.get(frameKey);
-      return trimImageEdges(imgData, frameData);
+      const frameData = txt.get(frameKey);
+      return trimImageEdges(imgData, { x: frameData.x, y: frameData.y, width: frameData.realWidth, height: frameData.realHeight });
     } else {
       return trimImageEdges(imgData);
     }
@@ -230,7 +231,7 @@ export class LiveAtlas {
    *
    * For more information, see `addFrameByURL`.
    */
-  public async addMultipleFramesByURL(textureUrls: string[], force = false) {
+  public addMultipleFramesByURL = async (textureUrls: string[], force = false) => {
     const proms: Promise<void>[] = [];
     for (const url of textureUrls) {
       proms.push(this.addFrameByURL(url, url, force));
@@ -255,8 +256,8 @@ export class LiveAtlas {
    * - Pack the frame into the atlas
    * - Draw the new frame into the atlas accordingly
    */
-  public async addFrameByURL(textureUrl: string, textureKey?: string, force = false) {
-    textureKey = textureKey ?? textureUrl;
+  public addFrameByURL = async (textureKey: string, textureUrl?: string, force = false) => {
+    textureUrl = textureUrl ?? textureKey;
     if (!textureUrl || (!force && (!textureKey || this.frames[textureKey]))) {
       return;
     }
@@ -291,6 +292,10 @@ export class LiveAtlas {
     }
 
     const trimFraming = this.trimTexture(textureKey);
+    if (trimFraming.trimmedWidth === 0){
+      // Trimmed down to nothing! Don't do anything else.
+      return;
+    }
     if (trimFraming) {
       frame.setTrim(
         trimFraming.originalWidth,
@@ -337,8 +342,6 @@ export class LiveAtlas {
     },
     // force = false,
   ) => {
-    // set this frame to render nothing at first - when it's loaded it will automatically update
-    // this.maybeRegisterEmptyFrame(key);
     // Check for data-uris
     const isDataURI = url.startsWith("data:image");
     // load `key` as an image/texture
@@ -391,7 +394,7 @@ export class LiveAtlas {
           framesToProcess.push({
             name: idx.toString(),
             x: x * width,
-            y: y * width,
+            y: y * height,
             width,
             height,
           });
@@ -423,13 +426,19 @@ export class LiveAtlas {
         incomingFrame.width,
         incomingFrame.height,
       );
-      const textureFrame = imgTexture.get(frameKey);
-      const trimFraming = this.trimTexture(key, frameKey);
+      const trimFraming = this.trimTexture(imgTexture, frameKey);
 
+      if (trimFraming.trimmedHeight === 0){
+        console.log('remove empty frame');
+        imgTexture.remove(frameKey);
+        continue;
+      }
+
+      const textureFrame = imgTexture.get(frameKey);
       if (trimFraming) {
         textureFrame.setTrim(
-          trimFraming.originalWidth,
-          trimFraming.originalHeight,
+          incomingFrame.width,
+          incomingFrame.height,
           trimFraming.x,
           trimFraming.y,
           trimFraming.trimmedWidth,
@@ -838,14 +847,6 @@ export class LiveAtlas {
   public make = {
     image: (x: number, y: number, frame: string): Phaser.GameObjects.Image => {
       const hasFrameAlready = this.hasFrame(frame);
-      // If we already have this frame loaded, we don't need to worry about any of the following
-      // procedure around loading the frame and adjusting the image's size/origin.
-      // if (hasFrameAlready) {
-      //   const img = this.scene.add.image(x, y, this.textureKey, frame);
-      //   this.applyFrame(frame, img);
-      //   return img;
-      // }
-
       // Register `frame` as a texture on this frame immediately
       // (This prevents `frame missing` warnings in console.)
       this.maybeRegisterEmptyFrame(frame);
