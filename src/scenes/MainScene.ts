@@ -51,10 +51,10 @@ export default class MainScene extends Phaser.Scene {
       this.liveAtlas.removeFrame(val, immediately);
     };
     (window as any).thing = () => {
-      this.liveAtlas.add.spritesheet('confetti', '/confetti-1.png', {
+      this.liveAtlas.add.spritesheet('avatar', '/avatar-2.png', {
         dimensions: {
-          width: 160,
-          height: 160,
+          width: 32,
+          height: 64,
         }
       });
     };

@@ -139,8 +139,15 @@ export class LiveAtlas {
     return !!this.frames[frame];
   };
 
+  // Cache image data from sources to ensure assets like sprites don't
+  private cache = new WeakMap<HTMLImageElement | HTMLCanvasElement, ImageData>();
+
   private trimCanvas?: Phaser.Textures.CanvasTexture;
   private getImageDataFromSource = (src: HTMLImageElement | HTMLCanvasElement) => {
+    if (this.cache.has(src)) {
+      return this.cache.get(src);
+    }
+
     if (!this.trimCanvas) {
       this.trimCanvas = this.rt.scene.textures.createCanvas("trim canvas", src.width, src.height);
     } else {
@@ -151,9 +158,11 @@ export class LiveAtlas {
     const trimData = this.trimCanvas.getContext().getImageData(0, 0, src.width, src.height);
     this.trimCanvas.setSize(1, 1);
     this.trimCanvas.clear();
+
+    this.cache.set(src, trimData);
     return trimData;
   };
-  private trimTexture = (textureKey: string, frameKey?:string) => {
+  private trimTexture = (textureKey: string, frameKey?: string) => {
     const texture = this.rt.scene.textures.get(textureKey);
     const src = texture.getSourceImage();
     if (src instanceof Phaser.GameObjects.RenderTexture) {
@@ -170,7 +179,7 @@ export class LiveAtlas {
     if (frameKey) {
       const frameData = texture.get(frameKey);
       return trimImageEdges(imgData, frameData);
-    }else {
+    } else {
       return trimImageEdges(imgData);
     }
   };
@@ -299,16 +308,18 @@ export class LiveAtlas {
       trim: trimFraming,
     };
 
-    
     // fit this frame into the packer
     const bin = this.packNewFrame(textureKey, dimensions);
+    if (bin) {
+      // update the RT to handle the new frame stuff
+      this.maybeResizeTexture();
 
-    // update the RT to handle the new frame stuff
-    this.maybeResizeTexture();
-
-    // When drawing to the RT, we still need to take trim into account
-    // (The specified texture has not been modified - we've only examined it for transparency.)
-    this.drawNewFrameToAtlas(dimensions, bin, textureKey);
+      // When drawing to the RT, we still need to take trim into account
+      // (The specified texture has not been modified - we've only examined it for transparency.)
+      this.drawNewFrameToAtlas(dimensions, bin, textureKey);
+    } else {
+      console.warn("There was an error packing texture into atlas! " + textureKey);
+    }
 
     // remove the texture now that it's in the RT
     this.scene.textures.remove(imgTexture);
@@ -318,13 +329,13 @@ export class LiveAtlas {
     key: string,
     url: string,
     config: {
-      frames?: { [frameName: string]: { x: number; y: number; width: number; height: number } },
+      frames?: { [frameName: string]: { x: number; y: number; width: number; height: number } };
       dimensions?: {
         width: number;
         height: number;
-      }
+      };
     },
-    force = false,
+    // force = false,
   ) => {
     // set this frame to render nothing at first - when it's loaded it will automatically update
     // this.maybeRegisterEmptyFrame(key);
@@ -342,10 +353,9 @@ export class LiveAtlas {
       return; // stop processing frame, move to next
     }
 
-
     // get its dimensions
-    let frame = this.rt.scene.textures.getFrame(key);
-    let imgTexture = this.rt.scene.textures.get(key);
+    const frame = this.rt.scene.textures.getFrame(key);
+    const imgTexture = this.rt.scene.textures.get(key);
 
     if (!frame) {
       console.warn("LiveAtlas : no frame found after importing to Phaser!", key);
@@ -355,11 +365,15 @@ export class LiveAtlas {
       return;
     }
 
-    const framesToProcess:{x:number;y:number;width:number;height:number;name:string;}[] = [];
+    let framesToProcess: { x: number; y: number; width: number; height: number; name: string }[] =
+      [];
 
     if (config.frames) {
-      for(const name in config.frames) {
+      for (const name in config.frames) {
         const frame = config.frames[name];
+        if (!frame) {
+          continue;
+        }
         framesToProcess.push({
           ...frame,
           name,
@@ -372,14 +386,14 @@ export class LiveAtlas {
 
       // add a frame to process for each slice
       let idx = 0;
-      for(let y = 0; y < vertSlices; y++){
-        for(let x = 0; x < horizSlices; x++){
+      for (let y = 0; y < vertSlices; y++) {
+        for (let x = 0; x < horizSlices; x++) {
           framesToProcess.push({
             name: idx.toString(),
             x: x * width,
             y: y * width,
             width,
-            height
+            height,
           });
           idx += 1;
         }
@@ -389,18 +403,29 @@ export class LiveAtlas {
       return;
     }
 
-    console.log('making frames..', framesToProcess);
+    // Sort incoming frames for more optimal packing
+    framesToProcess = framesToProcess.sort((a, b) => {
+      if (a.height === b.height) {
+        return a.width > b.width ? -1 : 1;
+      }
+      return a.height > b.height ? -1 : 1;
+    });
 
-    
     // for each slice/image part,
-    for(let i = 0; i < framesToProcess.length; i++){
-      const frame = framesToProcess[i];
-      const frameKey  = key + '-' + frame.name;
+    for (const incomingFrame of framesToProcess) {
+      const frameKey = key + "-" + incomingFrame.name;
       // create a frame on the texture
-      this.rt.texture.add(frameKey, 0, frame.x, frame.y, frame.width, frame.height);
-
-      let textureFrame = this.rt.scene.textures.get(key).get(frameKey);;
+      imgTexture.add(
+        frameKey,
+        0,
+        incomingFrame.x,
+        incomingFrame.y,
+        incomingFrame.width,
+        incomingFrame.height,
+      );
+      const textureFrame = imgTexture.get(frameKey);
       const trimFraming = this.trimTexture(key, frameKey);
+
       if (trimFraming) {
         textureFrame.setTrim(
           trimFraming.originalWidth,
@@ -417,21 +442,20 @@ export class LiveAtlas {
         trim: trimFraming,
       };
 
-      // add this to the render texture
+      // fit this frame into the packer
+      const bin = this.packNewFrame(frameKey, dimensions);
 
-          // fit this frame into the packer
-    const bin = this.packNewFrame(frameKey, dimensions);
+      if (bin) {
+        // update the RT to handle the new frame stuff
+        this.maybeResizeTexture();
 
-    // update the RT to handle the new frame stuff
-    this.maybeResizeTexture();
-
-    // When drawing to the RT, we still need to take trim into account
-    // (The specified texture has not been modified - we've only examined it for transparency.)
-    this.drawNewFrameToAtlas(dimensions, bin, frameKey, textureFrame);
-
+        // When drawing to the RT, we still need to take trim into account
+        // (The specified texture has not been modified - we've only examined it for transparency.)
+        this.drawNewFrameToAtlas(dimensions, bin, frameKey, textureFrame);
+      } else {
+        console.warn("There was an issue adding spritesheet frame to atlas! " + frameKey);
+      }
     }
-
-
 
     // remove the texture now that it's in the RT
     this.scene.textures.remove(imgTexture);
@@ -441,8 +465,6 @@ export class LiveAtlas {
    * Given a frame key and dimensions for that frame, packs it into the existing atlas.
    * The atlas may need to resize - which it will handle automatically - and afterward will flag
    * itself as being in need of repacking.
-   *
-   * TODO: This could be broken down into a few parts - packing + drawing
    */
   private packNewFrame = (
     frameKey: string,
@@ -496,10 +518,21 @@ export class LiveAtlas {
   }
 
   private drawNewFrameToAtlas(
-    dimensions: { width: number; height: number; trim: { x: number; y: number; originalWidth: number; originalHeight: number; trimmedWidth: number; trimmedHeight: number; }; },
+    dimensions: {
+      width: number;
+      height: number;
+      trim: null | {
+        x: number;
+        y: number;
+        originalWidth: number;
+        originalHeight: number;
+        trimmedWidth: number;
+        trimmedHeight: number;
+      };
+    },
     packedFrame: Bin,
     key: string,
-    frame?: Phaser.Textures.Frame
+    frame?: Phaser.Textures.Frame,
   ) {
     const trimX = dimensions?.trim?.x || 0;
     const trimY = dimensions?.trim?.y || 0;
@@ -515,16 +548,16 @@ export class LiveAtlas {
     let existingFrame = frame || this.rt.texture.get(key);
     if (existingFrame) {
       existingFrame.setSize(packedFrame.width, packedFrame.height, packedFrame.x, packedFrame.y);
-    } else {
-      existingFrame = this.rt.texture.add(
-        key,
-        0,
-        packedFrame.x,
-        packedFrame.y,
-        packedFrame.width,
-        packedFrame.height
-      );
     }
+
+    this.rt.texture.add(
+      key,
+      0,
+      packedFrame.x,
+      packedFrame.y,
+      packedFrame.width,
+      packedFrame.height,
+    );
     existingFrame.setTrim(originalWidth, originalHeight, trimX, trimY, trimmedWidth, trimmedHeight);
     // Ensure repacks now that we've added a new item
     this.setRepackFlag();
