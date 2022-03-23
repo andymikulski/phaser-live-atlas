@@ -302,10 +302,100 @@ export class LiveAtlas {
     this.scene.textures.remove(imgTexture);
   }
 
+  public addSpritesheetByURL = async (
+    key: string,
+    url: string,
+    config:
+      | { [frameName: string]: { x: number; y: number; width: number; height: number } }
+      | { frameWidth: number; frameHeight: number },
+    force = false,
+  ) => {
+    // set this frame to render nothing at first - when it's loaded it will automatically update
+    // this.maybeRegisterEmptyFrame(key);
+    // Check for data-uris
+    const isDataURI = url.startsWith("data:image");
+    // load `key` as an image/texture
+    try {
+      if (isDataURI) {
+        await loadViaTextureManager(this.scene, key, url);
+      } else {
+        await loadViaPhaserLoader(key, this.scene.load.image(key, url));
+      }
+    } catch (err) {
+      console.log("error loading image", err);
+      return; // stop processing frame, move to next
+    }
+
+
+    // get its dimensions
+    const frame = this.rt.scene.textures.getFrame(key);
+    const imgTexture = this.rt.scene.textures.get(key);
+
+    if (!frame) {
+      console.warn("LiveAtlas : no frame found after importing to Phaser!", key);
+      // this happens when multiple calls to `addFrame` for the same texture are called around the same time
+      // the first call will resolve and delete the texture, the following calls will reach this point
+      // and error out
+      return;
+    }
+
+
+
+
+
+
+    const hasFrames = config.frameWidth !== undefined;
+    if (hasFrames) {
+      const frames = config;
+
+    } else  {
+      const {frameWidth, frameHeight} = config;
+      const horizSlices = Math.ceil(frame.realWidth / frameWidth);
+      const vertSlices = Math.ceil(frame.realHeight / frameHeight);
+
+
+    }
+
+
+
+
+
+
+
+
+    // const trimFraming = this.trimFrame(key);
+    // if (trimFraming) {
+    //   frame.setTrim(
+    //     trimFraming.originalWidth,
+    //     trimFraming.originalHeight,
+    //     trimFraming.x,
+    //     trimFraming.y,
+    //     trimFraming.trimmedWidth,
+    //     trimFraming.trimmedHeight,
+    //   );
+    // }
+    // const dimensions = {
+    //   width: trimFraming?.trimmedWidth ?? frame.realWidth,
+    //   height: trimFraming?.trimmedHeight ?? frame.realHeight,
+    //   trim: trimFraming,
+    // };
+
+    // add this to the render texture
+    this.packNewFrame(key, dimensions);
+
+    // remove the texture now that it's in the RT
+    this.scene.textures.remove(imgTexture);
+
+
+
+  };
+
   /**
    * Given a frame key and dimensions for that frame, packs it into the existing atlas.
    * The atlas may need to resize - which it will handle automatically - and afterward will flag
    * itself as being in need of repacking.
+   *
+   * TODO: This could be broken down into a few parts - packing + drawing
    */
   private packNewFrame = (
     key: string,
@@ -648,6 +738,11 @@ export class LiveAtlas {
   };
 
   // Factory API -----------------------------------------------------------------------------------
+  public add = {
+    image: this.addFrameByURL.bind(this),
+    imageList: this.addMultipleFramesByURL.bind(this),
+    spritesheet: this.addSpritesheetByURL.bind(this),
+  } as const;
 
   /**
    * Factory functions to create new Images, Sprites, etc.

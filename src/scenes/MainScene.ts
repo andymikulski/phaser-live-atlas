@@ -32,9 +32,9 @@ export default class MainScene extends Phaser.Scene {
 
     // this.liveAtlas.load.fromBrowserStorage().then(()=>{
     //   // setTimeout(()=>{
-        this.liveAtlas.load.fromNetworkRequest("/cache/live-atlas-main.atlas").then(()=>{
-          this.isRunning = false;
-        });
+        // this.liveAtlas.load.fromNetworkRequest("/cache/live-atlas-main.atlas").then(()=>{
+        //   this.isRunning = false;
+        // });
     //   // }, 1000);
     // });
 
