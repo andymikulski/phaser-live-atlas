@@ -1,7 +1,7 @@
 import { trimImageEdges } from "./lib/imageTrimming";
 import { loadViaPhaserLoader, loadViaTextureManager } from "./lib/asyncLoader";
 import LocalBlobCache from "./lib/LocalBlobCache";
-import ShelfPack, { Shelf } from "./lib/ShelfPack";
+import ShelfPack, { Bin, Shelf } from "./lib/ShelfPack";
 
 /**
  * Controller for writing to the user's IndexedDB. This allows us to store arbitrary blobs of data to
@@ -153,9 +153,9 @@ export class LiveAtlas {
     this.trimCanvas.clear();
     return trimData;
   };
-  private trimFrame = (frameKey: string) => {
-    const src = this.rt.scene.textures.get(frameKey).getSourceImage();
-
+  private trimTexture = (textureKey: string, frameKey?:string) => {
+    const texture = this.rt.scene.textures.get(textureKey);
+    const src = texture.getSourceImage();
     if (src instanceof Phaser.GameObjects.RenderTexture) {
       return {
         x: 0,
@@ -166,9 +166,13 @@ export class LiveAtlas {
         trimmedHeight: src.height,
       };
     }
-
     const imgData = this.getImageDataFromSource(src);
-    return trimImageEdges(imgData);
+    if (frameKey) {
+      const frameData = texture.get(frameKey);
+      return trimImageEdges(imgData, frameData);
+    }else {
+      return trimImageEdges(imgData);
+    }
   };
 
   /**
@@ -277,7 +281,7 @@ export class LiveAtlas {
       return;
     }
 
-    const trimFraming = this.trimFrame(textureKey);
+    const trimFraming = this.trimTexture(textureKey);
     if (trimFraming) {
       frame.setTrim(
         trimFraming.originalWidth,
@@ -295,8 +299,16 @@ export class LiveAtlas {
       trim: trimFraming,
     };
 
-    // add this to the render texture
-    this.packNewFrame(textureKey, dimensions);
+    
+    // fit this frame into the packer
+    const bin = this.packNewFrame(textureKey, dimensions);
+
+    // update the RT to handle the new frame stuff
+    this.maybeResizeTexture();
+
+    // When drawing to the RT, we still need to take trim into account
+    // (The specified texture has not been modified - we've only examined it for transparency.)
+    this.drawNewFrameToAtlas(dimensions, bin, textureKey);
 
     // remove the texture now that it's in the RT
     this.scene.textures.remove(imgTexture);
@@ -305,9 +317,13 @@ export class LiveAtlas {
   public addSpritesheetByURL = async (
     key: string,
     url: string,
-    config:
-      | { [frameName: string]: { x: number; y: number; width: number; height: number } }
-      | { frameWidth: number; frameHeight: number },
+    config: {
+      frames?: { [frameName: string]: { x: number; y: number; width: number; height: number } },
+      dimensions?: {
+        width: number;
+        height: number;
+      }
+    },
     force = false,
   ) => {
     // set this frame to render nothing at first - when it's loaded it will automatically update
@@ -328,8 +344,8 @@ export class LiveAtlas {
 
 
     // get its dimensions
-    const frame = this.rt.scene.textures.getFrame(key);
-    const imgTexture = this.rt.scene.textures.get(key);
+    let frame = this.rt.scene.textures.getFrame(key);
+    let imgTexture = this.rt.scene.textures.get(key);
 
     if (!frame) {
       console.warn("LiveAtlas : no frame found after importing to Phaser!", key);
@@ -339,55 +355,86 @@ export class LiveAtlas {
       return;
     }
 
+    const framesToProcess:{x:number;y:number;width:number;height:number;name:string;}[] = [];
 
+    if (config.frames) {
+      for(const name in config.frames) {
+        const frame = config.frames[name];
+        framesToProcess.push({
+          ...frame,
+          name,
+        });
+      }
+    } else if (config.dimensions) {
+      const { width, height } = config.dimensions;
+      const horizSlices = Math.ceil(frame.realWidth / width);
+      const vertSlices = Math.ceil(frame.realHeight / height);
 
+      // add a frame to process for each slice
+      let idx = 0;
+      for(let y = 0; y < vertSlices; y++){
+        for(let x = 0; x < horizSlices; x++){
+          framesToProcess.push({
+            name: idx.toString(),
+            x: x * width,
+            y: y * width,
+            width,
+            height
+          });
+          idx += 1;
+        }
+      }
+    } else {
+      // no spritesheet frames or dimensions provided
+      return;
+    }
 
+    console.log('making frames..', framesToProcess);
 
+    
+    // for each slice/image part,
+    for(let i = 0; i < framesToProcess.length; i++){
+      const frame = framesToProcess[i];
+      const frameKey  = key + '-' + frame.name;
+      // create a frame on the texture
+      this.rt.texture.add(frameKey, 0, frame.x, frame.y, frame.width, frame.height);
 
-    const hasFrames = config.frameWidth !== undefined;
-    if (hasFrames) {
-      const frames = config;
+      let textureFrame = this.rt.scene.textures.get(key).get(frameKey);;
+      const trimFraming = this.trimTexture(key, frameKey);
+      if (trimFraming) {
+        textureFrame.setTrim(
+          trimFraming.originalWidth,
+          trimFraming.originalHeight,
+          trimFraming.x,
+          trimFraming.y,
+          trimFraming.trimmedWidth,
+          trimFraming.trimmedHeight,
+        );
+      }
+      const dimensions = {
+        width: trimFraming?.trimmedWidth ?? textureFrame.realWidth,
+        height: trimFraming?.trimmedHeight ?? textureFrame.realHeight,
+        trim: trimFraming,
+      };
 
-    } else  {
-      const {frameWidth, frameHeight} = config;
-      const horizSlices = Math.ceil(frame.realWidth / frameWidth);
-      const vertSlices = Math.ceil(frame.realHeight / frameHeight);
+      // add this to the render texture
 
+          // fit this frame into the packer
+    const bin = this.packNewFrame(frameKey, dimensions);
+
+    // update the RT to handle the new frame stuff
+    this.maybeResizeTexture();
+
+    // When drawing to the RT, we still need to take trim into account
+    // (The specified texture has not been modified - we've only examined it for transparency.)
+    this.drawNewFrameToAtlas(dimensions, bin, frameKey, textureFrame);
 
     }
 
 
 
-
-
-
-
-
-    // const trimFraming = this.trimFrame(key);
-    // if (trimFraming) {
-    //   frame.setTrim(
-    //     trimFraming.originalWidth,
-    //     trimFraming.originalHeight,
-    //     trimFraming.x,
-    //     trimFraming.y,
-    //     trimFraming.trimmedWidth,
-    //     trimFraming.trimmedHeight,
-    //   );
-    // }
-    // const dimensions = {
-    //   width: trimFraming?.trimmedWidth ?? frame.realWidth,
-    //   height: trimFraming?.trimmedHeight ?? frame.realHeight,
-    //   trim: trimFraming,
-    // };
-
-    // add this to the render texture
-    this.packNewFrame(key, dimensions);
-
     // remove the texture now that it's in the RT
     this.scene.textures.remove(imgTexture);
-
-
-
   };
 
   /**
@@ -398,7 +445,7 @@ export class LiveAtlas {
    * TODO: This could be broken down into a few parts - packing + drawing
    */
   private packNewFrame = (
-    key: string,
+    frameKey: string,
     dimensions: {
       width: number;
       height: number;
@@ -416,35 +463,44 @@ export class LiveAtlas {
       ? this.packer.packOne(
           dimensions.trim.trimmedWidth + this.framePadding,
           dimensions.trim.trimmedHeight + this.framePadding,
-          key,
+          frameKey,
         )
       : this.packer.packOne(
           dimensions.width + this.framePadding,
           dimensions.height + this.framePadding,
-          key,
+          frameKey,
         );
 
     if (!packedFrame) {
-      console.warn("Could not pack new frame with key: " + key);
+      console.warn("Could not pack new frame with key: " + frameKey);
       return;
     }
 
     const halfPadding = (this.framePadding / 2) | 0;
-    this.frames[key] = new Phaser.Geom.Rectangle(
+    this.frames[frameKey] = new Phaser.Geom.Rectangle(
       packedFrame.x,
       packedFrame.y,
       packedFrame.width - halfPadding,
       packedFrame.height - halfPadding,
     );
 
+    return packedFrame;
+  };
+
+  private maybeResizeTexture() {
     // if `this.rt`'s dimensions do not contain the total packed rects determined above,
     if (this.rt.width < this.packer.width || this.rt.height < this.packer.height) {
       // use `this.resizeTexture()` to increase the texture (by double? the exact amount??)
       this.resizeTexture(this.packer.width, this.packer.height);
     }
+  }
 
-    // When drawing to the RT, we still need to take trim into account
-    // (The texture at `key` has not been modified - we've only examined it for transparency.)
+  private drawNewFrameToAtlas(
+    dimensions: { width: number; height: number; trim: { x: number; y: number; originalWidth: number; originalHeight: number; trimmedWidth: number; trimmedHeight: number; }; },
+    packedFrame: Bin,
+    key: string,
+    frame?: Phaser.Textures.Frame
+  ) {
     const trimX = dimensions?.trim?.x || 0;
     const trimY = dimensions?.trim?.y || 0;
     const originalWidth = dimensions?.trim?.originalWidth || packedFrame.width;
@@ -452,11 +508,11 @@ export class LiveAtlas {
 
     const trimmedWidth = dimensions?.trim?.trimmedWidth || packedFrame.width;
     const trimmedHeight = dimensions?.trim?.trimmedHeight || packedFrame.height;
-    this.rt.draw(key, packedFrame.x - trimX, packedFrame.y - trimY);
+    this.rt.draw(frame || key, packedFrame.x - trimX, packedFrame.y - trimY);
 
     // The frame itself here already takes the trim and everything into account,
     // so we can insert it "as-is".
-    let existingFrame = this.rt.texture.get(key);
+    let existingFrame = frame || this.rt.texture.get(key);
     if (existingFrame) {
       existingFrame.setSize(packedFrame.width, packedFrame.height, packedFrame.x, packedFrame.y);
     } else {
@@ -466,17 +522,13 @@ export class LiveAtlas {
         packedFrame.x,
         packedFrame.y,
         packedFrame.width,
-        packedFrame.height,
+        packedFrame.height
       );
     }
-
     existingFrame.setTrim(originalWidth, originalHeight, trimX, trimY, trimmedWidth, trimmedHeight);
-
-    this.scene.textures.remove(key);
-
     // Ensure repacks now that we've added a new item
     this.setRepackFlag();
-  };
+  }
 
   /**
    * Given a frame name, _maybe_ adds it to the atlas. If the frame already exists, nothing happens.
@@ -739,9 +791,9 @@ export class LiveAtlas {
 
   // Factory API -----------------------------------------------------------------------------------
   public add = {
-    image: this.addFrameByURL.bind(this),
-    imageList: this.addMultipleFramesByURL.bind(this),
-    spritesheet: this.addSpritesheetByURL.bind(this),
+    image: this.addFrameByURL,
+    imageList: this.addMultipleFramesByURL,
+    spritesheet: this.addSpritesheetByURL,
   } as const;
 
   /**

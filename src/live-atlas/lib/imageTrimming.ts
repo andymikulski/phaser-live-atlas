@@ -45,7 +45,8 @@ function getTransparentPixel() {
  * Given an `ImageData` object, will trim any edge transparency, returning a cropped ImageData and framing info.
  */
 export function trimImageEdges(
-  imageData: ImageData | null
+  imageData: ImageData | null,
+  initialTrim?: { x:number, y:number, width:number, height:number }
 ): null | {
   x: number;
   y: number;
@@ -59,21 +60,24 @@ export function trimImageEdges(
   }
 
   const frame = {
-    x: 0,
-    y: 0,
-    originalWidth: imageData.width,
-    originalHeight: imageData.height,
-    trimmedWidth: imageData.width,
-    trimmedHeight: imageData.height,
+    x: initialTrim?.x || 0,
+    y: initialTrim?.y || 0,
+    originalWidth: initialTrim?.width || imageData.width,
+    originalHeight: initialTrim?.height || imageData.height,
+    trimmedWidth: initialTrim?.width || imageData.width,
+    trimmedHeight: initialTrim?.height || imageData.height,
   };
 
+  const maxWidth = initialTrim?.width || imageData.width;
+  const maxHeight = initialTrim?.height || imageData.height;
+
   // We'll use these `cursors` to track where we are looking in the image.
-  let yCursor = 0;
-  let xCursor = 0;
+  let yCursor = frame.x;
+  let xCursor = frame.y;
 
   // TOP TRIM-----
   // Find the pixel row closest to the TOP which is NOT transparent
-  for (yCursor = 0; yCursor < imageData.height; yCursor++) {
+  for (yCursor = 0; yCursor < maxHeight; yCursor++) {
     if (!checkRowIsTotallyTransparent(imageData, yCursor)) {
       break;
     }
@@ -84,7 +88,7 @@ export function trimImageEdges(
 
   // BOTTOM TRIM-----
   // Find the pixel row closest to the BOTTOM which is NOT transparent
-  for (yCursor = imageData.height - 1; yCursor >= 0; yCursor--) {
+  for (yCursor = maxHeight - 1; yCursor >= 0; yCursor--) {
     if (!checkRowIsTotallyTransparent(imageData, yCursor)) {
       break;
     }
@@ -92,11 +96,11 @@ export function trimImageEdges(
   // Adjust framing based on where the image should be trimmed on bottom
   // (Note we don't adjust the `y` because the image data is 'anchored' at (0,0))
   // (We also take 1px off because `height` starts at 0, not 1.)
-  frame.trimmedHeight -= imageData.height - 1 - yCursor;
+  frame.trimmedHeight -= maxHeight - 1 - yCursor;
 
   // LEFT TRIM-----
   // Find the pixel row closest to the LEFT BORDER which is NOT transparent
-  for (xCursor = 0; xCursor < imageData.width; xCursor++) {
+  for (xCursor = 0; xCursor < maxWidth; xCursor++) {
     if (!checkColumnIsTotallyTransparent(imageData, xCursor)) {
       break;
     }
@@ -107,7 +111,7 @@ export function trimImageEdges(
 
   // RIGHT TRIM-----
   // Find the pixel row closest to the RIGHT BORDER which is NOT transparent
-  for (xCursor = imageData.width - 1; xCursor >= 0; xCursor--) {
+  for (xCursor = maxWidth - 1; xCursor >= 0; xCursor--) {
     if (!checkColumnIsTotallyTransparent(imageData, xCursor)) {
       break;
     }
@@ -115,7 +119,7 @@ export function trimImageEdges(
   // Adjust framing based on where the image should be trimmed on the right
   // (Note we don't adjust the `x` because the image data is 'anchored' at (0,0))
   // (We also take 1px off because `width` starts at 0, not 1.)
-  frame.trimmedWidth -= imageData.width - 1 - xCursor;
+  frame.trimmedWidth -= maxWidth - 1 - xCursor;
 
   // --- DONE CALCULATING TRIM! ---
 

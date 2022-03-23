@@ -50,6 +50,14 @@ export default class MainScene extends Phaser.Scene {
       this.loadedFrames = left.concat(right);
       this.liveAtlas.removeFrame(val, immediately);
     };
+    (window as any).thing = () => {
+      this.liveAtlas.add.spritesheet('confetti', '/confetti-1.png', {
+        dimensions: {
+          width: 160,
+          height: 160,
+        }
+      });
+    };
     (window as any).loadBunchaObjects = this.loadBunchaObjects;
     (window as any).save = this.liveAtlas.save.toBrowserStorage.bind(
       this.liveAtlas
