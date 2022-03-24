@@ -41,37 +41,76 @@ type SerializedAtlas = {
 };
 
 /**
- * LiveAtlas - An on-the-fly spritesheet generator with support for serialization, repack, and more!
+ * Represents the dimensions needed for a given texture/frame in which all padding transparency is removed
+ * but all meaningful pixel content remains. This is used when trimming incoming images before insertion
+ * into an atlas.
+ */
+type TrimDimensions = {
+  x: number;
+  y: number;
+  originalWidth: number;
+  originalHeight: number;
+  trimmedWidth: number;
+  trimmedHeight: number;
+};
+
+/**
+ * LiveAtlas - An on-the-fly spritesheet generator with support for serialization, repacking, and more!
  *
  *
- * Usage:
+ * ## Loading + Preloading Assets
  * ```ts
  * // Creation
  * this.liveAtlas = new LiveAtlas(this, "main");
- * this.liveAtlas.setPixelArt(true); // for crisp graphics
+ * this.liveAtlas.setPixelArt(true); // for crisp graphics (default: false)
  *
- * // Loading new frames (preloading)
- * this.liveAtlas.addFrame(urlToFrameImage)
+ * // Load a new frame (preloading)
+ * this.liveAtlas.add.image(urlToFrameImage)
+ * // Load many new frames at once
+ * this.liveAtlas.add.imageList([url1, url2, url3..]);
+ * ```
  *
- * // Elsewhere in the app..
+ * ## Basic Usage
+ * ```ts
+ * // Create an image instance using an already loaded frame
+ * this.liveAtlas.make.image(x, y, '/path/to/my-img.png');
  *
- * // Preload
- * const somePathToImg = '/path/to/my-img.png';
- * this.liveAtlas.addFrame(somePathToImg);
- *
- * // Add image with existing frame
- * this.liveAtlas.make.image(x, y, somePathToImg);
- *
- * // Load + add image on the fly - without preloading. The returned `Image` will be sized at 1px v 1px until
+ * // Load + add image on the fly - without preloading. The returned `Image` will be sized at 1px by 1px until
  * // the image has been loaded, at which point it'll be resized and show the correct texture as expected.
  * const img = this.liveAtlas.make.image(x, y, '/some/other/url.png');
- *
  *
  * // Later, if you want to replace an image with a different frame in the atlas (which may not have
  * // even been loaded yet):
  * this.liveAtlas.applyFrame('/a-third-url.png', img);
+ * ```
  *
+ * ## Spritesheets
+ * ```ts
+ * // There are two formats in which we can add a spritesheet into an atlas:
  *
+ * // 1) By setting a frame height/width and allowing the atlas to slice up the frames for us
+ * this.liveAtlas.add.spritesheet('my-spritesheet', '/path/to/sheet.png', {
+ *   dimensions: {
+ *     width: 32, // each frame is 32 px wide
+ *     height: 64, // each frame is 64 px tall
+ *   }
+ * });
+ *
+ * // 2) Passing in a dictionary of `frameName -> { x, y, width, height }` defining each cell
+ * this.liveAtlas.add.spritesheet('my-spritesheet', '/path/to/sheet.png', {
+ *   frames: {
+ *     'idle-south': {x: 0, y: 0, width: 32, height: 64},
+ *     'idle-north': {x: 32, y: 0, width: 32, height: 64},
+ *     'idle-west': {x: 64, y: 0, width: 32, height: 64},
+ *     'idle-east': {x: 0, y: 32, width: 32, height: 64},
+ *    }
+ * });
+ *
+ * # TODO !! EXAMPLE OF USING A SPRITESHEET
+ * ```
+ *
+ * ## Serialization
+ * ```ts
  * // The atlas can also be serialized/imported (from localStorage, sessionStorage, or IndexedDB).
  * // Using `BrowserStorage` will select the best-suited storage location for data.
  * this.liveAtlas.save.toBrowserStorage();
@@ -94,6 +133,7 @@ export class LiveAtlas {
 
   private packer = new ShelfPack(1, 1, true);
 
+  // Getters for easy external access
   public get texture(): Phaser.Textures.Texture {
     return this.rt.texture;
   }
@@ -103,6 +143,10 @@ export class LiveAtlas {
   public get textureKey(): string {
     return "live-atlas-" + this.id;
   }
+  public get backbufferKey(): string {
+    return "live-atlas-backbuffer-" + this.id;
+  }
+  //---
 
   /**
    * Toggle the visibility of the compiled render texture so it appears in its parent scene.
@@ -130,11 +174,9 @@ export class LiveAtlas {
   };
 
   // ------
-
-  private backbufferKey = () => {
-    return "live-atlas-backbuffer-" + this.id;
-  };
-
+  /**
+   * Has this frame been loaded into this atlas instance?
+   */
   public hasFrame = (frame: string) => {
     return !!this.frames[frame];
   };
@@ -143,9 +185,15 @@ export class LiveAtlas {
   private cache = new WeakMap<HTMLImageElement | HTMLCanvasElement, ImageData>();
 
   private trimCanvas?: Phaser.Textures.CanvasTexture;
-  private getImageDataFromSource = (src: HTMLImageElement | HTMLCanvasElement) => {
-    if (this.cache.has(src)) {
-      return this.cache.get(src);
+
+  /**
+   * Returns the `ImageData` object containing the pixel data for the given image source.
+   * This is used when trying to read from textures loaded into Phaser.
+   */
+  private getImageDataFromSource = (src: HTMLImageElement | HTMLCanvasElement): ImageData => {
+    const existing = this.cache.get(src);
+    if (existing) {
+      return existing;
     }
 
     if (!this.trimCanvas) {
@@ -163,8 +211,15 @@ export class LiveAtlas {
     return trimData;
   };
 
-  private trimTexture = (texture: string|Phaser.Textures.Texture, frameKey?: string) => {
-    const txt = typeof texture === 'string' ? this.rt.scene.textures.get(texture) : texture;
+  /**
+   * Given a texture (and an optional frame on that texture), returns the dimensions in which all
+   * transparency has been trimmed and only actual pixel content remains.
+   */
+  private trimTransparency = (
+    texture: string | Phaser.Textures.Texture,
+    frameKey?: string,
+  ): TrimDimensions => {
+    const txt = typeof texture === "string" ? this.rt.scene.textures.get(texture) : texture;
     const src = txt.getSourceImage();
     if (src instanceof Phaser.GameObjects.RenderTexture) {
       return {
@@ -179,7 +234,12 @@ export class LiveAtlas {
     const imgData = this.getImageDataFromSource(src);
     if (frameKey) {
       const frameData = txt.get(frameKey);
-      return trimImageEdges(imgData, { x: frameData.x, y: frameData.y, width: frameData.realWidth, height: frameData.realHeight });
+      return trimImageEdges(imgData, {
+        x: frameData.x,
+        y: frameData.y,
+        width: frameData.realWidth,
+        height: frameData.realHeight,
+      });
     } else {
       return trimImageEdges(imgData);
     }
@@ -237,7 +297,7 @@ export class LiveAtlas {
       proms.push(this.addFrameByURL(url, url, force));
     }
     return Promise.all(proms);
-  }
+  };
 
   /**
    * Add a new frame to this atlas via URL address or data-URI. If you're trying to add new items to
@@ -291,8 +351,8 @@ export class LiveAtlas {
       return;
     }
 
-    const trimFraming = this.trimTexture(textureKey);
-    if (trimFraming.trimmedWidth === 0){
+    const trimFraming = this.trimTransparency(textureKey);
+    if (trimFraming?.trimmedWidth === 0) {
       // Trimmed down to nothing! Don't do anything else.
       return;
     }
@@ -328,8 +388,21 @@ export class LiveAtlas {
 
     // remove the texture now that it's in the RT
     this.scene.textures.remove(imgTexture);
-  }
+  };
 
+  /**
+   * Adds an existing spritesheet to this atlas via URL address or data-URI. Use this if you want to
+   * import a third-party tilesheet.
+   *
+   * If you're trying to import a serialized LiveAtlas, use the available `atlas.load` functions instead.
+   *
+   * This will:
+   * - Make a network request to get the target texture
+   * - Load the texture into Phaser
+   * - Trim transparency from _each frame of the image_
+   * - Pack all the new frames into the atlas
+   * - Draw the new frames into the atlas accordingly
+   */
   public addSpritesheetByURL = async (
     key: string,
     url: string,
@@ -426,14 +499,16 @@ export class LiveAtlas {
         incomingFrame.width,
         incomingFrame.height,
       );
-      const trimFraming = this.trimTexture(imgTexture, frameKey);
+      const trimFraming = this.trimTransparency(imgTexture, frameKey);
 
-      if (trimFraming.trimmedHeight === 0){
-        console.log('remove empty frame');
+      // Ignore fully trimmed images - they're just empty space
+      if (trimFraming?.trimmedHeight === 0) {
         imgTexture.remove(frameKey);
         continue;
       }
 
+      // Apply trim to this frame so when we draw this frame we don't have to account for
+      // extra whitespace/padding around the image
       const textureFrame = imgTexture.get(frameKey);
       if (trimFraming) {
         textureFrame.setTrim(
@@ -451,19 +526,20 @@ export class LiveAtlas {
         trim: trimFraming,
       };
 
-      // fit this frame into the packer
+      // fit this frame into the packer, now that it's been trimmed and prepared
       const bin = this.packNewFrame(frameKey, dimensions);
 
-      if (bin) {
-        // update the RT to handle the new frame stuff
-        this.maybeResizeTexture();
-
-        // When drawing to the RT, we still need to take trim into account
-        // (The specified texture has not been modified - we've only examined it for transparency.)
-        this.drawNewFrameToAtlas(dimensions, bin, frameKey, textureFrame);
-      } else {
+      if (!bin) {
         console.warn("There was an issue adding spritesheet frame to atlas! " + frameKey);
+        continue;
       }
+
+      // update the RT to handle the new frame stuff
+      this.maybeResizeTexture();
+
+      // When drawing to the RT, we still need to take trim into account
+      // (The specified texture has not been modified - we've only examined it for transparency.)
+      this.drawNewFrameToAtlas(dimensions, bin, frameKey, textureFrame);
     }
 
     // remove the texture now that it's in the RT
@@ -518,6 +594,10 @@ export class LiveAtlas {
     return packedFrame;
   };
 
+  /**
+   * Compares the current texture sizes with the packer's dimensions, and resizes the texture
+   * if necessary. This is called when importing a new image, before calling `drawNewFrameToAtlas`.
+   */
   private maybeResizeTexture() {
     // if `this.rt`'s dimensions do not contain the total packed rects determined above,
     if (this.rt.width < this.packer.width || this.rt.height < this.packer.height) {
@@ -526,6 +606,9 @@ export class LiveAtlas {
     }
   }
 
+  /**
+   * Takes data for a new frame and inserts it into the render texture.
+   */
   private drawNewFrameToAtlas(
     dimensions: {
       width: number;
@@ -554,7 +637,7 @@ export class LiveAtlas {
 
     // The frame itself here already takes the trim and everything into account,
     // so we can insert it "as-is".
-    let existingFrame = frame || this.rt.texture.get(key);
+    const existingFrame = frame || this.rt.texture.get(key);
     if (existingFrame) {
       existingFrame.setSize(packedFrame.width, packedFrame.height, packedFrame.x, packedFrame.y);
     }
@@ -699,7 +782,7 @@ export class LiveAtlas {
       this.backbuffer = this.scene.add.renderTexture(0, 0, 100, 100).setVisible(false);
       this.backbuffer.fill(0xff0000);
 
-      this.backbuffer.saveTexture(this.backbufferKey());
+      this.backbuffer.saveTexture(this.backbufferKey);
     }
     return this.backbuffer;
   };
@@ -794,7 +877,7 @@ export class LiveAtlas {
       return;
     }
     // use drawFrame to draw the backbuffer's key to `x,y` on `this.rt`
-    this.rt.drawFrame(this.backbufferKey(), key, x, y);
+    this.rt.drawFrame(this.backbufferKey, key, x, y);
   };
 
   /**
@@ -832,6 +915,13 @@ export class LiveAtlas {
   };
 
   // Factory API -----------------------------------------------------------------------------------
+
+  /**
+   * Utility functions to load new frames into this atlas.
+   * All functions return promises which only resolve when all items have been loaded.
+   *
+   * If you're trying to _create_ something which uses an atlas frame, refer to the `atlas.make` functions.
+   */
   public add = {
     image: this.addFrameByURL,
     imageList: this.addMultipleFramesByURL,
@@ -872,7 +962,8 @@ export class LiveAtlas {
   // Serialization + Storage API -------------------------------------------------------------------
 
   /**
-   * Seri
+   * Serializes all of the relevenat bits of information to restore an Atlas, and returns a POJO containing
+   * the data. This data is later converted into a JSON string and stored in browser storage (or to disk).
    */
   private exportSerializedData = async (): Promise<SerializedAtlas> => {
     const imgDataSource = this.rt.texture.getSourceImage();

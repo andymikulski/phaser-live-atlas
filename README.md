@@ -2,8 +2,9 @@ TODO:
 
 - Split texture into multiple sources (multiple RTs) so we can effectively have a multiatlas backed by render textures
 - Identify WebGL vs Canvas issues and maybe report to the Phaser repo?
-- Animations - inject frames into existing atlas?
 - Maybe use/expose `navigator.storage.persist` ?
+- Removing a base spritesheet URL should remove all of its subframes
+- Animations?? Spritesheet frames are in the URL but where do we define `anims`? How do we key them? `${url}-${key}`?
 
 BUGS:
 
