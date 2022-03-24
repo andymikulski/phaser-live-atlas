@@ -1,5 +1,5 @@
 import { trimImageEdges } from "./lib/imageTrimming";
-import { loadViaPhaserLoader, loadViaTextureManager } from "./lib/asyncLoader";
+import { loadViaPhaserLoader, loadViaTextureManager } from "./lib/phaserLoaders";
 import LocalBlobCache from "./lib/LocalBlobCache";
 import ShelfPack, { Bin, Shelf } from "./lib/ShelfPack";
 
@@ -75,8 +75,9 @@ type TrimDimensions = {
  * // Create an image instance using an already loaded frame
  * this.liveAtlas.make.image(x, y, '/path/to/my-img.png');
  *
- * // Load + add image on the fly - without preloading. The returned `Image` will be sized at 1px by 1px until
- * // the image has been loaded, at which point it'll be resized and show the correct texture as expected.
+ * // Load + add image on the fly - without preloading. The returned `Image` will be sized at 1px
+ * // by 1px until the image has been loaded, at which point it'll be resized and show the correct
+ * // texture as expected.
  * const img = this.liveAtlas.make.image(x, y, '/some/other/url.png');
  *
  * // Later, if you want to replace an image with a different frame in the atlas (which may not have
@@ -117,7 +118,7 @@ type TrimDimensions = {
  *
  * // You can also use `toJSON` if you want the serialized data yourself:
  * const serialized = this.liveAtlas.save.toJSON();
- * // serialized = {frames: [...], image: 'data:image/png;base64,...', packerData: '<internal packer data>'};
+ * // serialized = {frames: [...], image: 'data:image/png;base64,...', packerData: '<packer state>'};
  *
  * // Using `load` will replace the current atlas with whatever has been serialized to the local machine.
  * this.liveAtlas.load.fromBrowserStorage();
@@ -143,7 +144,8 @@ export class LiveAtlas {
   public get textureKey(): string {
     return "live-atlas-" + this.id;
   }
-  public get backbufferKey(): string {
+  // Backbuffer is for internal use only
+  private get backbufferKey(): string {
     return "live-atlas-backbuffer-" + this.id;
   }
   //---
@@ -345,9 +347,9 @@ export class LiveAtlas {
 
     if (!frame) {
       console.warn("LiveAtlas : no frame found after importing to Phaser!", textureKey);
-      // this happens when multiple calls to `addFrame` for the same texture are called around the same time
-      // the first call will resolve and delete the texture, the following calls will reach this point
-      // and error out
+      // this happens when multiple calls to `addFrame` for the same texture are called around the
+      // same time the first call will resolve and delete the texture, the following calls will reach
+      // this point and error out
       return;
     }
 
@@ -775,7 +777,8 @@ export class LiveAtlas {
 
   /**
    * Creates a `backbuffer` render texture, if necessary, and returns it.
-   * This is used primarily for transferring texture state when we need to i.e. resize the internal render texture.
+   * This is used primarily for transferring texture state when we need to i.e. resize the
+   * internal render texture.
    */
   private getBackbuffer = () => {
     if (!this.backbuffer) {
@@ -892,7 +895,8 @@ export class LiveAtlas {
   };
 
   /**
-   * Applies a frame from this atlas to the given Phaser object. Loads the frame into the atlas if necessary.
+   * Applies a frame from this atlas to the given Phaser object. Loads the frame into the atlas,
+   * if necessary.
    *
    * Use this if you want to change the texture of an object that already exists.
    * If creating a new object, use `atlas.make.image(...)` instead.
@@ -1347,7 +1351,7 @@ export class LiveAtlas {
 
     /**
      * Imports the given file/blob/string from a previously serialized atlas.
-     * Use this when handling drag-n-drop files, or results from `fetch` (if not using `load.fromNetworkRequest`)
+     * Use this when handling drag-n-drop files or loading via `fs`.
      */
     fromDiskFile: async (data: File | Blob | string) => {
       if (typeof data === "string") {
@@ -1366,7 +1370,7 @@ export class LiveAtlas {
       try {
         await fetch(url, opts)
           .then((x) => x.blob())
-          .then((x) => this.load.fromDiskFile(x));
+          .then((x) => this.load.fromBlob(x));
       } catch (err) {
         return false;
       }

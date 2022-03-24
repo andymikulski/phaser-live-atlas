@@ -51,12 +51,12 @@ export default class MainScene extends Phaser.Scene {
       this.liveAtlas.removeFrame(val, immediately);
     };
     (window as any).thing = () => {
-      // this.liveAtlas.add.spritesheet('fishing-sheet', '/fishing-sheet.png', {
-      //   dimensions: {
-      //     width: 96,
-      //     height: 64,
-      //   }
-      // });
+      this.liveAtlas.add.spritesheet('fishing-sheet', '/fishing-sheet.png', {
+        dimensions: {
+          width: 96,
+          height: 64,
+        }
+      });
 
       this.liveAtlas.add.spritesheet('avatar', '/avatar.png', {
         dimensions: {
@@ -65,12 +65,12 @@ export default class MainScene extends Phaser.Scene {
         }
       });
 
-      // this.liveAtlas.add.spritesheet('avatar2', '/avatar-2.png', {
-      //   dimensions: {
-      //     width: 32,
-      //     height: 64,
-      //   }
-      // });
+      this.liveAtlas.add.spritesheet('avatar2', '/avatar-2.png', {
+        dimensions: {
+          width: 32,
+          height: 64,
+        }
+      });
     };
     (window as any).loadBunchaObjects = this.loadBunchaObjects;
     (window as any).save = this.liveAtlas.save.toBrowserStorage.bind(

@@ -2,7 +2,7 @@
  * Given an `ImageData` object and a `y` coordinate, scans the row of the image for transparency.
  * Returns `true` if row is totally transparent.
  */
-function checkRowIsTotallyTransparent(imageData: ImageData, yPos = 0) {
+ function checkRowIsTotallyTransparent(imageData: ImageData, yPos = 0) {
   let alpha;
   let index;
   for (let x = 0; x < imageData.width; x++) {
@@ -46,7 +46,7 @@ function getTransparentPixel() {
  */
 export function trimImageEdges(
   imageData: ImageData | null,
-  initialTrim?: { x:number, y:number, width:number, height:number }
+  initialTrim?: { x: number; y: number; width: number; height: number },
 ): null | {
   x: number;
   y: number;
@@ -75,8 +75,6 @@ export function trimImageEdges(
   // We'll use these `cursors` to track where we are looking in the image.
   let yCursor = frame.y;
   let xCursor = frame.x;
-
-  console.log('starting trim at...', xCursor, yCursor, maxLeft, maxBottom);
 
   // TOP TRIM-----
   // Find the pixel row closest to the TOP which is NOT transparent
