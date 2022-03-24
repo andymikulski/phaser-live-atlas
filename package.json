@@ -1,8 +1,8 @@
 {
-  "name": "phaser-starter",
+  "name": "phaser-live-atlas",
   "version": "0.0.1",
-  "description": "A simple Phaser + Typescript starter kit",
-  "main": "index.js",
+  "description": "LiveAtlas - An on-the-fly spritesheet generator for Phaser 3",
+  "main": "src/live-atlas/index.ts",
   "scripts": {
     "start": "webpack-dev-server --port 9000 --inline --progress --profile --colors --watch --content-base src/ --mode development",
     "build": "webpack --config webpack.config.js --mode production",
@@ -17,8 +17,8 @@
     "phaser",
     "typescript"
   ],
-  "author": "",
-  "license": "ISC",
+  "author": "Andy Mikulski",
+  "license": "MIT",
   "devDependencies": {
     "@babel/cli": "^7.2.3",
     "@babel/core": "^7.4.0",
@@ -38,6 +38,7 @@
     "source-map-loader": "0.2.3",
     "tslint": "5.17.0",
     "tslint-loader": "3.6.0",
+    "typedoc-plugin-missing-exports": "^0.22.6",
     "typescript": "latest",
     "webpack": "4.12.0",
     "webpack-cli": "3.0.8",
@@ -46,6 +47,7 @@
   "dependencies": {
     "@mapbox/shelf-pack": "^3.2.0",
     "phaser": "3.60.0-beta.4",
-    "tsconfig-paths-webpack-plugin": "^3.5.2"
+    "tsconfig-paths-webpack-plugin": "^3.5.2",
+    "typedoc": "^0.22.13"
   }
 }

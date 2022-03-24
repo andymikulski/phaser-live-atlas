@@ -12,5 +12,11 @@
   },
   "include": [
     "src/**/*"
-  ]
+  ],
+  "typedocOptions": {
+    "entryPoints": ["src/live-atlas/LiveAtlas.ts"],
+    "out": "docs",
+    "excludeExternals": true,
+    "excludePrivate": true
+  }
 }
