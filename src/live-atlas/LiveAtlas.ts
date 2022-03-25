@@ -1,4 +1,4 @@
-import { trimImageEdges } from "./lib/imageTrimming";
+import { trimImageEdges, TrimInfo } from "./lib/imageTrimming";
 import { loadViaPhaserLoader, loadViaTextureManager } from "./lib/phaserLoaders";
 import LocalBlobCache from "./lib/LocalBlobCache";
 import ShelfPack, { Bin, Shelf } from "./lib/ShelfPack";
@@ -234,17 +234,28 @@ export class LiveAtlas {
       };
     }
     const imgData = this.getImageDataFromSource(src);
+    let trim:null|TrimInfo = null;
     if (frameKey) {
       const frameData = txt.get(frameKey);
-      return trimImageEdges(imgData, {
+      trim = trimImageEdges(imgData, {
         x: frameData.x,
         y: frameData.y,
         width: frameData.realWidth,
         height: frameData.realHeight,
       });
     } else {
-      return trimImageEdges(imgData);
+      trim = trimImageEdges(imgData);
     }
+
+    // Return the trim if possible, else return a 0x0 framing
+    return trim || {
+      x: 0,
+      y: 0,
+      originalWidth: 0,
+      originalHeight: 0,
+      trimmedWidth: 0,
+      trimmedHeight: 0,
+    };
   };
 
   /**
@@ -558,14 +569,7 @@ export class LiveAtlas {
     dimensions: {
       width: number;
       height: number;
-      trim: null | {
-        x: number;
-        y: number;
-        originalWidth: number;
-        originalHeight: number;
-        trimmedWidth: number;
-        trimmedHeight: number;
-      };
+      trim: null | TrimInfo;
     },
   ) => {
     const packedFrame = dimensions?.trim
@@ -615,14 +619,7 @@ export class LiveAtlas {
     dimensions: {
       width: number;
       height: number;
-      trim: null | {
-        x: number;
-        y: number;
-        originalWidth: number;
-        originalHeight: number;
-        trimmedWidth: number;
-        trimmedHeight: number;
-      };
+      trim: null | TrimInfo;
     },
     packedFrame: Bin,
     key: string,

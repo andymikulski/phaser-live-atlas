@@ -7,8 +7,7 @@
   let index;
   for (let x = 0; x < imageData.width; x++) {
     index = (yPos * imageData.width + x) * 4;
-    alpha = imageData.data[index + 3];
-    // TODO: @ENG-4257 Clean these up! See the linear task for more context and advice for cleaning up.
+    alpha = imageData.data[index + 3] || 0;
     if (alpha > 0) {
       return false;
     }
@@ -23,8 +22,7 @@ function checkColumnIsTotallyTransparent(imageData: ImageData, xPos = 0) {
   let alpha, index;
   for (let y = 0; y < imageData.height; y++) {
     index = (y * imageData.width + xPos) * 4;
-    alpha = imageData.data[index + 3];
-    // TODO: @ENG-4257 Clean these up! See the linear task for more context and advice for cleaning up.
+    alpha = imageData.data[index + 3] || 0;
     if (alpha > 0) {
       return false;
     }
@@ -32,14 +30,14 @@ function checkColumnIsTotallyTransparent(imageData: ImageData, xPos = 0) {
   return true;
 }
 
-/**
- * Creates a new `ImageData` consisting of a single transparent pixel.
- */
-function getTransparentPixel() {
-  const imageData = new ImageData(1, 1);
-  imageData.data.set([0, 0, 0, 0]);
-  return imageData;
-}
+export type TrimInfo = {
+  x: number;
+  y: number;
+  originalWidth: number;
+  originalHeight: number;
+  trimmedWidth: number;
+  trimmedHeight: number;
+};
 
 /**
  * Given an `ImageData` object, will trim any edge transparency, returning a cropped ImageData and framing info.
@@ -47,14 +45,7 @@ function getTransparentPixel() {
 export function trimImageEdges(
   imageData: ImageData | null,
   initialTrim?: { x: number; y: number; width: number; height: number },
-): null | {
-  x: number;
-  y: number;
-  originalWidth: number;
-  originalHeight: number;
-  trimmedWidth: number;
-  trimmedHeight: number;
-} {
+): null | TrimInfo {
   if (imageData === null || imageData?.data?.length === 0) {
     return null;
   }
