@@ -3,6 +3,8 @@ import { loadViaPhaserLoader, loadViaTextureManager } from "./lib/phaserLoaders"
 import LocalBlobCache from "./lib/LocalBlobCache";
 import ShelfPack, { Bin, Shelf } from "./lib/ShelfPack";
 
+const asyncYield = () => new Promise((res) => setTimeout(res, 0));
+
 /**
  * Controller for writing to the user's IndexedDB. This allows us to store arbitrary blobs of data to
  * the machine's local storage without worrying about the ~5mb limit that comes with `localStorage`.
@@ -502,6 +504,8 @@ export class LiveAtlas {
       return a.height > b.height ? -1 : 1;
     });
 
+    let strobe = false;
+
     // for each slice/image part,
     for (const incomingFrame of framesToProcess) {
       const frameKey = key + "-" + incomingFrame.name;
@@ -515,6 +519,13 @@ export class LiveAtlas {
         incomingFrame.height,
       );
       const trimFraming = this.trimTransparency(imgTexture, frameKey);
+
+      // Yield every other frame - this ensures that one large spritesheet doesn't prevent other things
+      // from loading in tandem
+      strobe = !strobe;
+      if (strobe) {
+        await asyncYield();
+      }
 
       // Ignore fully trimmed images - they're just empty space
       if (trimFraming?.trimmedHeight === 0) {
@@ -1242,6 +1253,18 @@ export class LiveAtlas {
       link.download = storageKey + "." + extension;
       // Triggers a download at the browser level for a text file
       link.click();
+    },
+
+    /**
+     * Converts this atlas into an `Image` which can then be added to the DOM,
+     * drawn on another `canvas`, etc.
+     */
+    toImage: async (): Promise<HTMLImageElement> => {
+      const json = await this.save.toJSON();
+      const url = json.image;
+      const img = new Image();
+      img.src = url;
+      return img;
     },
   } as const;
 

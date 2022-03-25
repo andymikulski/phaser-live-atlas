@@ -58,6 +58,13 @@ export default class MainScene extends Phaser.Scene {
         }
       });
 
+      this.liveAtlas.add.spritesheet('confetti', '/confetti-1.png', {
+        dimensions: {
+          width: 160,
+          height: 160,
+        }
+      });
+
       this.liveAtlas.add.spritesheet('avatar', '/avatar.png', {
         dimensions: {
           width: 32,
