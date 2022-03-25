@@ -234,28 +234,30 @@ export class LiveAtlas {
       };
     }
     const imgData = this.getImageDataFromSource(src);
-    let trim:null|TrimInfo = null;
+    let trim: null | TrimInfo = null;
     if (frameKey) {
       const frameData = txt.get(frameKey);
       trim = trimImageEdges(imgData, {
-        x: frameData.x,
-        y: frameData.y,
-        width: frameData.realWidth,
-        height: frameData.realHeight,
+        x: frameData.cutX,
+        y: frameData.cutY,
+        width: frameData.cutWidth,
+        height: frameData.cutHeight,
       });
     } else {
       trim = trimImageEdges(imgData);
     }
 
     // Return the trim if possible, else return a 0x0 framing
-    return trim || {
-      x: 0,
-      y: 0,
-      originalWidth: 0,
-      originalHeight: 0,
-      trimmedWidth: 0,
-      trimmedHeight: 0,
-    };
+    return (
+      trim || {
+        x: 0,
+        y: 0,
+        originalWidth: 0,
+        originalHeight: 0,
+        trimmedWidth: 0,
+        trimmedHeight: 0,
+      }
+    );
   };
 
   /**
