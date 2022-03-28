@@ -22,6 +22,7 @@ export default class MainScene extends Phaser.Scene {
 
     this.add
       .image(0, 0, "background")
+      .setAlpha(0.33)
       // .setVisible(false)
       .setOrigin(0, 0) // Anchor to top left so (0,0) is flush against the corner
       .setDisplaySize(1024, 768) // Fit background image to window
@@ -50,21 +51,70 @@ export default class MainScene extends Phaser.Scene {
       this.loadedFrames = left.concat(right);
       this.liveAtlas.removeFrame(val, immediately);
     };
-    (window as any).thing = () => {
+    (window as any).thing = async () => {
+      await this.liveAtlas.add.spritesheet('confetti-1', '/confetti-1.png', {
+        dimensions: {
+          width: 160,
+          height: 160,
+        },
+        anims: {
+          'default': {
+            frameRate: 60,
+            start: 0,
+            end: 71,
+          },
+        }
+      })
       this.liveAtlas.add.spritesheet('fishing-sheet', '/fishing-sheet.png', {
         dimensions: {
           width: 96,
           height: 64,
         },
         anims: {
-          cast: { frameRate: 6, start: 0, end: 13 , yoyo: true, repeat: Phaser.FOREVER},
+          cast: { frameRate: 6, start: 0, end: 13 },
           idle: { frameRate: 3, start: 11, end: 13, yoyo: true, repeat: Phaser.FOREVER },
           nibble: { frameRate: 6, start: 14, end: 17, repeat: Phaser.FOREVER },
           friction: { frameRate: 8, start: 18, end: 21, yoyo: true, repeat: Phaser.FOREVER },
-          "reel-in": { frameRate: 8, start: 22, end: 33, yoyo: true, repeat: Phaser.FOREVER },
+          "reel-in": { frameRate: 8, start: 22, end: 33 },
         }
       }).then(()=>{
-        const fishingRod = this.liveAtlas.make.sprite(0, 0, 'fishing-sheet', 'idle');
+        const makePole = () => {
+          const fishingRod = this.liveAtlas.make.sprite(Math.random() * this.scale.width, Math.random() * this.scale.height, 'fishing-sheet', 'idle');
+        this.liveAtlas.anims.goto('fishing-sheet', 'cast', fishingRod);
+
+        const doThing = async () => {
+          await this.liveAtlas.anims.play('fishing-sheet', 'cast', fishingRod);
+          await new Promise(res => setTimeout(res, 1000));
+
+          this.liveAtlas.anims.play('fishing-sheet', 'idle', fishingRod);
+          await new Promise(res => setTimeout(res, 300));
+
+          this.liveAtlas.anims.play('fishing-sheet', 'nibble', fishingRod);
+          await new Promise(res => setTimeout(res, 300));
+
+          this.liveAtlas.anims.play('fishing-sheet', 'friction', fishingRod);
+          await new Promise(res => setTimeout(res, 500));
+
+          await this.liveAtlas.anims.play('fishing-sheet', 'reel-in', fishingRod);
+
+
+          this.liveAtlas.anims.goto('fishing-sheet', 'cast', fishingRod);
+
+          // fishingRod.setVisible(false);
+          await new Promise(res => setTimeout(res, 2000));
+
+          doThing();
+        };
+
+        doThing();
+        }
+
+
+        for(let i = 0; i < 100; i++){
+          setTimeout(()=>{
+            makePole();
+          }, i * 10);
+        }
       });
 
 

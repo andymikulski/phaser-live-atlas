@@ -1060,18 +1060,67 @@ export class LiveAtlas {
      *
      * Be sure to call `liveAtlas.anims.add(...)` before calling this.
      */
-    play: (
+    play: async (
       spritesheetName: string,
       animName: string,
       target: Phaser.GameObjects.Sprite | Phaser.GameObjects.Sprite[],
     ) => {
       const animKey = this.getAnimKey(spritesheetName, animName);
       if (!this.scene.anims.get(animKey)) {
-        console.warn('No animation found for "' + animName + '" - did you call `anims.add` first?');
+        console.warn(
+          'No animation found for "' +
+            spritesheetName +
+            " - " +
+            animName +
+            '" - did you call `anims.add` first?',
+        );
         return;
       }
-      console.log("playing anim..", animName, animKey, this.scene.anims.get(animKey));
       this.scene.anims.play(animKey, target);
+      if (target instanceof Array) {
+        // Wait for all animations to complete (or be destroyed)
+        const allAnims = target.map((t) => {
+          return new Promise<void>(function (res) {
+            t.once(Phaser.GameObjects.Events.DESTROY, res);
+            t.once(Phaser.Animations.Events.ANIMATION_COMPLETE, res);
+          });
+        });
+        return Promise.all(allAnims);
+      } else {
+        // Wait for this single target's animation to complete
+        return new Promise(function (res) {
+          target.once(Phaser.GameObjects.Events.DESTROY, res);
+          target.once(Phaser.Animations.Events.ANIMATION_COMPLETE, res);
+        });
+      }
+    },
+
+    /**
+     * Sets the `target` to the first frame of the given animation, if it's available.
+     * This is usefuufo
+     */
+    goto: async (
+      spritesheetName: string,
+      animName: string,
+      target: Phaser.GameObjects.Sprite | Phaser.GameObjects.Sprite[],
+    ) => {
+      const animKey = this.getAnimKey(spritesheetName, animName);
+      if (!this.scene.anims.get(animKey)) {
+        console.warn(
+          'No animation found for "' +
+            spritesheetName +
+            " - " +
+            animName +
+            '" - did you call `anims.add` first?',
+        );
+        return;
+      }
+      this.scene.anims.play(animKey, target);
+      if (target instanceof Array) {
+        target.forEach((x) => x.anims.pause());
+      } else {
+        target.anims.pause();
+      }
     },
   } as const;
 

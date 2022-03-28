@@ -7,7 +7,7 @@ setTimeout(()=>{
     // pixelArt: true,
     width: 1024,
     height: 768,
-    backgroundColor: 0x010101,
+    backgroundColor: 0xffffff,
     // scale: {
       // mode: Phaser.Scale.FIT,
     // },
