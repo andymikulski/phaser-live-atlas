@@ -534,11 +534,7 @@ export class LiveAtlas {
         await asyncYield();
       }
 
-      // Ignore fully trimmed images - they're just empty space
-      if (trimFraming?.trimmedHeight === 0) {
-        imgTexture.remove(frameKey);
-        continue;
-      }
+      // TODO: Maybe ignore fully trimmed images?
 
       // Apply trim to this frame so when we draw this frame we don't have to account for
       // extra whitespace/padding around the image
@@ -645,31 +641,58 @@ export class LiveAtlas {
     key: string,
     frame?: Phaser.Textures.Frame,
   ) {
-    const trimX = dimensions?.trim?.x || 0;
-    const trimY = dimensions?.trim?.y || 0;
-    const originalWidth = dimensions?.trim?.originalWidth || packedFrame.width;
-    const originalHeight = dimensions?.trim?.originalHeight || packedFrame.height;
+    const trimX = dimensions?.trim?.x ?? 0;
+    const trimY = dimensions?.trim?.y ?? 0;
+    const originalWidth = dimensions?.trim?.originalWidth ?? packedFrame.width;
+    const originalHeight = dimensions?.trim?.originalHeight ?? packedFrame.height;
 
-    const trimmedWidth = dimensions?.trim?.trimmedWidth || packedFrame.width;
-    const trimmedHeight = dimensions?.trim?.trimmedHeight || packedFrame.height;
+    const trimmedWidth = dimensions?.trim?.trimmedWidth ?? packedFrame.width;
+    const trimmedHeight = dimensions?.trim?.trimmedHeight ?? packedFrame.height;
     this.rt.draw(frame || key, packedFrame.x - trimX, packedFrame.y - trimY);
 
     // The frame itself here already takes the trim and everything into account,
     // so we can insert it "as-is".
+
+    // We may have a frame in hand already, or there may be one that already exists on this atlas.
+    // We need to update this frame to reflect the new sizing/trim. If we don't do this, `make.image`
+    // etc will not show images due to a race condition and the need to resize the frame after applying.
     const existingFrame = frame || this.rt.texture.get(key);
     if (existingFrame) {
-      existingFrame.setSize(packedFrame.width, packedFrame.height, packedFrame.x, packedFrame.y);
+      existingFrame
+        .setSize(
+          packedFrame.width - this.framePadding,
+          packedFrame.height - this.framePadding,
+          packedFrame.x,
+          packedFrame.y,
+        )
+        .setTrim(originalWidth, originalHeight, trimX, trimY, trimmedWidth, trimmedHeight);
     }
 
-    this.rt.texture.add(
+    // For some reason (?? TODO) animations require new frames to be added, and checking the existence
+    // of a frame doesn't seem to be the right condition to check - either there is an error when adding
+    // a spritesheet, or existing objects don't update/resize correctly. Weird.
+    const newFrame = this.rt.texture.add(
       key,
       0,
       packedFrame.x,
       packedFrame.y,
-      packedFrame.width,
-      packedFrame.height,
+      packedFrame.width - this.framePadding,
+      packedFrame.height - this.framePadding,
     );
-    existingFrame.setTrim(originalWidth, originalHeight, trimX, trimY, trimmedWidth, trimmedHeight);
+
+    // This new frame _may_ not have been added; it will be `null` if `rt.texture` already has `key`
+    if (newFrame) {
+      // Same operation as above: update size, position, and trim
+      newFrame
+        .setSize(
+          packedFrame.width - this.framePadding,
+          packedFrame.height - this.framePadding,
+          packedFrame.x,
+          packedFrame.y,
+        )
+        .setTrim(originalWidth, originalHeight, trimX, trimY, trimmedWidth, trimmedHeight);
+    }
+
     // Ensure repacks now that we've added a new item
     this.setRepackFlag();
   }
