@@ -89,7 +89,7 @@ export default class MainScene extends Phaser.Scene {
           this.liveAtlas.anims.play('fishing-sheet', 'idle', fishingRod);
           await new Promise(res => setTimeout(res, 300));
 
-          this.liveAtlas.anims.play('fishing-sheet', 'nibble', fishingRod);
+          await this.liveAtlas.anims.play('fishing-sheet', 'nibble', fishingRod);
           await new Promise(res => setTimeout(res, 300));
 
           this.liveAtlas.anims.play('fishing-sheet', 'friction', fishingRod);
@@ -98,7 +98,6 @@ export default class MainScene extends Phaser.Scene {
           await this.liveAtlas.anims.play('fishing-sheet', 'reel-in', fishingRod);
 
 
-          this.liveAtlas.anims.goto('fishing-sheet', 'cast', fishingRod);
 
           // fishingRod.setVisible(false);
           await new Promise(res => setTimeout(res, 2000));

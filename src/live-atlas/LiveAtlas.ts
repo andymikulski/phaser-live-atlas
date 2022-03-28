@@ -352,7 +352,7 @@ export class LiveAtlas {
         await loadViaPhaserLoader(textureKey, this.scene.load.image(textureKey, textureUrl));
       }
     } catch (err) {
-      console.log("error loading image", err);
+      console.warn("Error loading image into atlas:", err);
       return; // stop processing frame, move to next
     }
 
@@ -458,10 +458,10 @@ export class LiveAtlas {
     const imgTexture = this.rt.scene.textures.get(key);
 
     if (!frame) {
-      console.warn("LiveAtlas : no frame found after importing to Phaser!", key);
+      console.warn("LiveAtlas: no frame found after importing to Phaser!", key);
       // this happens when multiple calls to `addFrame` for the same texture are called around the same time
       // the first call will resolve and delete the texture, the following calls will reach this point
-      // and error out
+      // and error out. TODO
       return;
     }
 
@@ -1076,23 +1076,25 @@ export class LiveAtlas {
         );
         return;
       }
+      const anim = this.scene.anims.get(animKey);
       this.scene.anims.play(animKey, target);
-      if (target instanceof Array) {
-        // Wait for all animations to complete (or be destroyed)
-        const allAnims = target.map((t) => {
-          return new Promise<void>(function (res) {
-            t.once(Phaser.GameObjects.Events.DESTROY, res);
+      // Wait for all animations to complete (or be destroyed)
+      const allTargets = target instanceof Array ? target : [target];
+      const allAnims = allTargets.map((t) => {
+        return new Promise<void>(function (res) {
+          // This may be destroyed before the animation is done
+          t.once(Phaser.GameObjects.Events.DESTROY, res);
+
+          // Animations that loop forever will resolve when the first run is complete.
+          // Other animations will wait for the `COMPLETE` event.
+          if (anim.repeat === Phaser.FOREVER) {
+            t.once(Phaser.Animations.Events.ANIMATION_REPEAT, res);
+          } else {
             t.once(Phaser.Animations.Events.ANIMATION_COMPLETE, res);
-          });
+          }
         });
-        return Promise.all(allAnims);
-      } else {
-        // Wait for this single target's animation to complete
-        return new Promise(function (res) {
-          target.once(Phaser.GameObjects.Events.DESTROY, res);
-          target.once(Phaser.Animations.Events.ANIMATION_COMPLETE, res);
-        });
-      }
+      });
+      return Promise.all(allAnims);
     },
 
     /**
@@ -1508,7 +1510,6 @@ export class LiveAtlas {
       } catch (err) {
         return false;
       }
-      console.log("JSON successfully imported!");
       return true;
     },
     /**
