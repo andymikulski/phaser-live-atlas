@@ -20,15 +20,15 @@ export default class MainScene extends Phaser.Scene {
       fontSize: "16px",
     }).setDepth(Infinity);
 
-    this.add
-      .image(0, 0, "background")
-      // .setVisible(false)
-      .setOrigin(0, 0) // Anchor to top left so (0,0) is flush against the corner
-      .setDisplaySize(1024, 768) // Fit background image to window
-      .setDepth(-1); // Behind everything
+    // this.add
+    //   .image(0, 0, "background")
+    //   // .setVisible(false)
+    //   .setOrigin(0, 0) // Anchor to top left so (0,0) is flush against the corner
+    //   .setDisplaySize(1024, 768) // Fit background image to window
+    //   .setDepth(-1); // Behind everything
 
     this.liveAtlas = new LiveAtlas(this, "main");
-    this.liveAtlas.setPixelArt(true).setDebugVisible(true);
+    this.liveAtlas.setPixelArt(true).setDebugVisible(false);
 
     // this.liveAtlas.load.fromBrowserStorage().then(()=>{
     //   // setTimeout(()=>{
@@ -51,33 +51,84 @@ export default class MainScene extends Phaser.Scene {
       this.liveAtlas.removeFrame(val, immediately);
     };
     (window as any).thing = () => {
-      this.liveAtlas.add.spritesheet('fishing-sheet', '/fishing-sheet.png', {
-        dimensions: {
-          width: 96,
-          height: 64,
-        }
-      });
+      // this.liveAtlas.add.spritesheet('fishing-sheet', '/fishing-sheet.png', {
+      //   dimensions: {
+      //     width: 96,
+      //     height: 64,
+      //   },
+      //   anims: {
+      //     cast: { frameRate: 6, start: 0, end: 13 , yoyo: true, repeat: Phaser.FOREVER},
+      //     idle: { frameRate: 3, start: 11, end: 13, yoyo: true, repeat: Phaser.FOREVER },
+      //     nibble: { frameRate: 6, start: 14, end: 17, repeat: Phaser.FOREVER },
+      //     friction: { frameRate: 8, start: 18, end: 21, yoyo: true, repeat: Phaser.FOREVER },
+      //     "reel-in": { frameRate: 8, start: 22, end: 33, yoyo: true, repeat: Phaser.FOREVER },
+      //   }
+      // }).then(()=>{
+      //   const img = this.add.image(10, 10, this.liveAtlas.textureKey, 'fishing-sheet-1');
+      //   console.log("AHHH", img);
+      //   // this.liveAtlas.anims.play('cast', this.add.sprite(100,100, this.liveAtlas.textureKey));
+      // });
 
-      this.liveAtlas.add.spritesheet('confetti', '/confetti-1.png', {
+
+      this.liveAtlas.add.spritesheet('confetti-1', '/confetti-1.png', {
         dimensions: {
           width: 160,
           height: 160,
+        },
+        anims: {
+          'default': {
+            frameRate: 60,
+            start: 0,
+            end: 71,
+          },
         }
+      }).then(()=>{
+
+        setInterval(()=>{
+          this.liveAtlas.make.animation(this.scale.width * Math.random(), this.scale.height * Math.random(), 'confetti-1');
+        }, 250);
+
+        // const img = this.add.sprite(10, 10, this.liveAtlas.textureKey);
+        // this.liveAtlas.anims.play('confetti-1', 'default', img);
+        // const img = this.add.image(10, 10, this.liveAtlas.textureKey, 'fishing-sheet-1');
+        // console.log("AHHH", img);
+        // this.liveAtlas.anims.play('confetti', img);
       });
 
-      this.liveAtlas.add.spritesheet('avatar', '/avatar.png', {
-        dimensions: {
-          width: 32,
-          height: 64,
-        }
-      });
+      // this.liveAtlas.add.spritesheet('confetti', '/confetti-1.png', {
+      //   dimensions: {
+      //     width: 160,
+      //     height: 160,
+      //   }
+      // }).then(()=>{
+      //   this.anims.create({
+      //     key: 'confetti-anim',
+      //     frames: this.anims.generateFrameNames(this.liveAtlas.textureKey, {
+      //       prefix: 'confetti-',
+      //       start: 0,
+      //       end: 70,
+      //     }),
+      //     duration: 1000,
+      //     repeat: Phaser.FOREVER,
+      //   });
 
-      this.liveAtlas.add.spritesheet('avatar2', '/avatar-2.png', {
-        dimensions: {
-          width: 32,
-          height: 64,
-        }
-      });
+      //   const img = this.add.sprite(100, 100, this.liveAtlas.textureKey);
+      //   this.anims.play('confetti-anim', img);
+      // })
+
+      // this.liveAtlas.add.spritesheet('avatar', '/avatar.png', {
+      //   dimensions: {
+      //     width: 32,
+      //     height: 64,
+      //   }
+      // });
+
+      // this.liveAtlas.add.spritesheet('avatar2', '/avatar-2.png', {
+      //   dimensions: {
+      //     width: 32,
+      //     height: 64,
+      //   }
+      // });
     };
     (window as any).loadBunchaObjects = this.loadBunchaObjects;
     (window as any).save = this.liveAtlas.save.toBrowserStorage.bind(

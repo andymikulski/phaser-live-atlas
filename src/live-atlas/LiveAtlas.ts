@@ -128,7 +128,7 @@ type TrimDimensions = {
  */
 export class LiveAtlas {
   private requiresRepack = false;
-  private framePadding = 4;
+  private framePadding = 8;
   private frames: { [imgUrl: string]: Phaser.Geom.Rectangle } = {};
   private rt: Phaser.GameObjects.RenderTexture;
   private backbuffer?: Phaser.GameObjects.RenderTexture;
@@ -420,7 +420,7 @@ export class LiveAtlas {
    * - Pack all the new frames into the atlas
    * - Draw the new frames into the atlas accordingly
    */
-  public addSpritesheetByURL = async (
+  private addSpritesheetByURL = async (
     key: string,
     url: string,
     config: {
@@ -432,6 +432,13 @@ export class LiveAtlas {
     },
     // force = false,
   ) => {
+    if (this.frames[key]) {
+      // Spritesheet already loaded - no work needs to be done
+      return;
+    }
+    // Register this spritesheet key as an empty frame - this helps us track spritesheet presence.
+    this.maybeRegisterEmptyFrame(key);
+
     // Check for data-uris
     const isDataURI = url.startsWith("data:image");
     // load `key` as an image/texture
@@ -928,6 +935,10 @@ export class LiveAtlas {
     this.sizeObjectToFrame(toObject);
   };
 
+  private getAnimKey = (spritesheet: string, animName: string) => {
+    return "atlas-" + this.id + "-" + spritesheet + "-" + animName;
+  };
+
   // Factory API -----------------------------------------------------------------------------------
 
   /**
@@ -939,7 +950,106 @@ export class LiveAtlas {
   public add = {
     image: this.addFrameByURL,
     imageList: this.addMultipleFramesByURL,
-    spritesheet: this.addSpritesheetByURL,
+    spritesheet: async (
+      key: string,
+      url: string,
+      config: {
+        frames?: { [frameName: string]: { x: number; y: number; width: number; height: number } };
+        dimensions?: {
+          width: number;
+          height: number;
+        };
+        anims?: {
+          [name: string]: {
+            frames?: number[];
+            start?: number;
+            end?: number;
+            duration?: number;
+            frameRate?: number;
+            delay?: number;
+            repeat?: number;
+            repeatDelay?: number;
+            yoyo?: boolean;
+          };
+        };
+      },
+    ) => {
+      // Load + pack the spritesheets
+      await this.addSpritesheetByURL(key, url, config);
+
+      // Register incoming animations, if any
+      if (config.anims) {
+        for (const anim in config.anims) {
+          const detail = config.anims[anim];
+          if (detail) {
+            this.anims.add(key, anim, detail);
+          }
+        }
+      }
+    },
+  } as const;
+
+  /**
+   * Utility functions for handling animations stored within this atlas.
+   */
+  public anims = {
+    /**
+     * Registers a new animation within this atlas, making it available for Sprites to reference.
+     * Use `liveAtlas.anims.play(...)` to actually get a Sprite object to run this animation.
+     */
+    add: (
+      spritesheetName: string,
+      animName: string,
+      config: {
+        frames?: number[];
+        start?: number;
+        end?: number;
+        duration?: number;
+        frameRate?: number;
+        delay?: number;
+        repeat?: number;
+        repeatDelay?: number;
+        yoyo?: boolean;
+      },
+    ) => {
+      this.scene.anims.create({
+        // Namespace this animation to this atlas so there are no accidental collisions with animations
+        // registered outside of this atlas
+        key: this.getAnimKey(spritesheetName, animName),
+        frames: this.scene.anims.generateFrameNames(this.textureKey, {
+          prefix: spritesheetName + "-",
+          start: config.start,
+          end: config.end,
+          frames: config.frames,
+        }),
+        // duration: config.duration,
+        frameRate: config.frameRate,
+        delay: config.delay === undefined ? 0 : config.delay,
+        repeatDelay: config.repeatDelay === undefined ? 0 : config.repeatDelay,
+        repeat: config.repeat === undefined ? 0 : config.repeat,
+        yoyo: config.yoyo === undefined ? false : config.yoyo,
+      });
+    },
+
+    /**
+     * Finds the specified animation for the given imported spritesheet, and plays it on the given
+     * sprite targets. If no animation exists, a warning will print to console.
+     *
+     * Be sure to call `liveAtlas.anims.add(...)` before calling this.
+     */
+    play: (
+      spritesheetName: string,
+      animName: string,
+      target: Phaser.GameObjects.Sprite | Phaser.GameObjects.Sprite[],
+    ) => {
+      const animKey = this.getAnimKey(spritesheetName, animName);
+      if (!this.scene.anims.get(animKey)) {
+        console.warn('No animation found for "' + animName + '" - did you call `anims.add` first?');
+        return;
+      }
+      console.log("playing anim..", animName, animKey, this.scene.anims.get(animKey));
+      this.scene.anims.play(animKey, target);
+    },
   } as const;
 
   /**
@@ -969,6 +1079,34 @@ export class LiveAtlas {
         this.sizeObjectToFrame(img);
       });
 
+      return img;
+    },
+
+    sprite: (
+      x: number,
+      y: number,
+      spritesheet: string,
+      startingAnim = "default",
+    ): Phaser.GameObjects.Sprite => {
+      return this.make.animation(x, y, spritesheet, startingAnim, false);
+    },
+
+    animation: (
+      x: number,
+      y: number,
+      spritesheet: string,
+      animName = "default",
+      destroyOnComplete = true,
+    ): Phaser.GameObjects.Sprite => {
+      const img = this.scene.add.sprite(x, y, this.textureKey);
+      const animKey = this.getAnimKey(spritesheet, animName);
+      this.scene.anims.play(animKey, img);
+
+      if (destroyOnComplete) {
+        img.on(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
+          img.removeFromDisplayList().removeFromUpdateList().destroy();
+        });
+      }
       return img;
     },
   } as const;
