@@ -111,7 +111,6 @@ export class Shelf {
 
 /**
  * Main class for using the ShelfPack algorithm.
- * Tracks the number of
  */
 class ShelfPack {
   public shelves: Shelf[] = [];

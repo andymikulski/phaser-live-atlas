@@ -46,12 +46,12 @@ Features:
 ---
 
 TODO:
-- Removing a base spritesheet URL should remove all of its subframes
 - Split texture into multiple sources (multiple RTs) so we can effectively have a multiatlas backed by render textures
 - Identify WebGL vs Canvas issues and maybe report to the Phaser repo?
 - Fill out README a bit more
 
 BUGS:
+- `repack` seems to mess with spritesheet frame offsets
 - Multiple things calling `addFrame` at the same time produces weird results
   - race condition with loading/processing - we constantly create/destroy/etc even though once is enough
 

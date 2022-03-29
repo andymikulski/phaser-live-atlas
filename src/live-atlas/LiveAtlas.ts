@@ -133,14 +133,54 @@ const scratchCanvasID = "live atlas scratch canvas";
  * ```
  */
 export class LiveAtlas {
-  private requiresRepack = false;
+  /**
+   * Amount (in pixels) of padding between each frame.
+   * (This shouldn't be too high but enough to compensate for the lack of extrusion.)
+   */
   private framePadding = 8;
-  private frames: { [imgUrl: string]: Phaser.Geom.Rectangle } = {};
+
+  /**
+   * Dictionary of image/frame URLs and their corresponding placement in the atlas.
+   */
+  private frames: { [frameKey: string]: Phaser.Geom.Rectangle } = {};
+
+  /**
+   * Dictionary of spritesheet URLs and the names of their subframes installed on this atlas.
+   * This is used primarily when removing spritesheets - we need to remove all frames belonging
+   * to this spritesheet, even though they are scattered throughout the atlas at this point.
+   */
+  private spriteFrames: { [spritesheetUrl: string]: string[] } = {};
+
+  /**
+   * The main RenderTexture for this atlas.
+   * This reflects the current atlas in its entirety, and has an attached `Frame` for each image
+   * or spritesheet inserted. This should never be destroyed, unless the atlas itself is destroyed.
+   */
   private rt: Phaser.GameObjects.RenderTexture;
+
+  /**
+   * Spare RT used for temporarily holding and transferring data when i.e. resizing the main RT.
+   * Don't address this directly; instead use `preserveTextureState`, `drawPreservedFrame`, and
+   * `freePreservedState`.
+   */
   private backbuffer?: Phaser.GameObjects.RenderTexture;
+
+  /**
+   * Cursor for erasing bits of the internal render texture.
+   */
   private eraserCursor: Phaser.GameObjects.Rectangle;
 
+  /**
+   * The bin packer. Uses `shelf pack`, which is basically a `Next-fit decreasing-height` strip packing
+   * algorithm. You can learn more on Wikipedia: https://archive.is/BlnP4
+   */
   private packer = new ShelfPack(1, 1, true);
+
+  /**
+   * Flag to denote if this atlas has been modified and could stand to be repacked.
+   * This is used to short-circuit `repack` if there is no work to be done.
+   */
+  private requiresRepack = false;
 
   // Getters for easy external access
   public get texture(): Phaser.Textures.Texture {
@@ -271,11 +311,23 @@ export class LiveAtlas {
   /**
    * only do this AFTER it's certain this frame isn't being used
    */
-  public removeFrame(frame: string | string[], immediately = false) {
+  public removeFrame(frame: string | string[], immediately = true) {
     if (!(frame instanceof Array)) {
       frame = [frame];
     }
 
+    // We need to check if any of the incoming `frame`s are actually pointing to a spritesheet.
+    // If so, we'll just add each of the spritesheet's frames to the list of frames to be removed.
+    for (const url of frame) {
+      const collection = this.spriteFrames[url];
+      if (collection) {
+        Array.prototype.push.apply(frame, collection);
+        delete this.spriteFrames[url];
+      }
+    }
+
+    // Step through each frame and remove it from memory.
+    // If `immediately` has been flagged, it will also be erased from the RT.
     for (let i = 0; i < frame.length; i++) {
       const currentFrame = frame[i];
       if (!currentFrame) {
@@ -290,8 +342,8 @@ export class LiveAtlas {
         return;
       }
 
-      // if we're immediately removing this from the texture, we need to actually erase the image data
-      // and the frame. (This happens 'passively' when `repack` is called.)
+      // `immediately` = erase from the RT at this time
+      // (If this isn't flagged, `repack` will naturally remove these items later when invoked.)
       this.eraserCursor.setPosition(frameRect.x, frameRect.y);
       this.eraserCursor.setOrigin(0, 0);
       this.eraserCursor.setSize(frameRect.width, frameRect.height);
@@ -304,7 +356,7 @@ export class LiveAtlas {
       }
     }
 
-    // Ensure repacks now that we've added a new item
+    // Ensure repacks now that we've made space for new items
     this.setRepackFlag();
   }
 
@@ -523,6 +575,7 @@ export class LiveAtlas {
     // for each slice/image part,
     for (const incomingFrame of framesToProcess) {
       const frameKey = key + "-" + incomingFrame.name;
+
       // create a frame on the texture
       imgTexture.add(
         frameKey,
@@ -532,6 +585,11 @@ export class LiveAtlas {
         incomingFrame.width,
         incomingFrame.height,
       );
+
+      // Track that this frame belongs to this spritesheet. (This is used later if we end up entirely
+      // removing this spritesheet from the atlas.)
+      this.spriteFrames[key] = this.spriteFrames[key] || [];
+      this.spriteFrames[key]?.push(frameKey);
 
       // Examine the image data and determine where the content actually lies in the frame
       // This is used to trim excess transparency from the image to optimally pack it in the atlas.
