@@ -1,2 +1,2 @@
-import { LiveAtlas } from "./LiveAtlas";
+import { LiveAtlas } from "./lib/LiveAtlas";
 export default LiveAtlas;

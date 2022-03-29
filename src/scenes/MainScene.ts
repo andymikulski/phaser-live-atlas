@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { LiveAtlas } from "../live-atlas/LiveAtlas";
+import { LiveAtlas } from "../live-atlas/lib/LiveAtlas";
 import objectData from "./objectData";
 
 export default class MainScene extends Phaser.Scene {
@@ -29,7 +29,7 @@ export default class MainScene extends Phaser.Scene {
       .setDepth(-1); // Behind everything
 
     this.liveAtlas = new LiveAtlas(this, "main");
-    this.liveAtlas.setPixelArt(true).setDebugVisible(false);
+    this.liveAtlas.setPixelArt(true).setDebugVisible(true);
 
     // this.liveAtlas.load.fromBrowserStorage().then(()=>{
     //   // setTimeout(()=>{
@@ -52,87 +52,94 @@ export default class MainScene extends Phaser.Scene {
       this.liveAtlas.removeFrame(val, immediately);
     };
     (window as any).thing = async () => {
-      // await this.liveAtlas.add.spritesheet('confetti-1', '/confetti-1.png', {
-      //   dimensions: {
-      //     width: 160,
-      //     height: 160,
-      //   },
-      //   anims: {
-      //     'default': {
-      //       frameRate: 60,
-      //       start: 0,
-      //       end: 71,
-      //     },
-      //   }
-      // })
-      // this.liveAtlas.add.spritesheet('fishing-sheet', '/fishing-sheet.png', {
-      //   dimensions: {
-      //     width: 96,
-      //     height: 64,
-      //   },
-      //   anims: {
-      //     cast: { frameRate: 6, start: 0, end: 13 },
-      //     idle: { frameRate: 3, start: 11, end: 13, yoyo: true, repeat: Phaser.FOREVER },
-      //     nibble: { frameRate: 6, start: 14, end: 17, repeat: Phaser.FOREVER },
-      //     friction: { frameRate: 8, start: 18, end: 21, yoyo: true, repeat: Phaser.FOREVER },
-      //     "reel-in": { frameRate: 8, start: 22, end: 33 },
-      //   }
-      // }).then(()=>{
-      //   const makePole = () => {
-      //     const fishingRod = this.liveAtlas.make.sprite(Math.random() * this.scale.width, Math.random() * this.scale.height, 'fishing-sheet', 'idle');
-      //   this.liveAtlas.anims.goto('fishing-sheet', 'cast', fishingRod);
-
-      //   const doThing = async () => {
-      //     await this.liveAtlas.anims.play('fishing-sheet', 'cast', fishingRod);
-      //     await new Promise(res => setTimeout(res, 1000));
-
-      //     this.liveAtlas.anims.play('fishing-sheet', 'idle', fishingRod);
-      //     await new Promise(res => setTimeout(res, 300));
-
-      //     await this.liveAtlas.anims.play('fishing-sheet', 'nibble', fishingRod);
-      //     await new Promise(res => setTimeout(res, 300));
-
-      //     this.liveAtlas.anims.play('fishing-sheet', 'friction', fishingRod);
-      //     await new Promise(res => setTimeout(res, 500));
-
-      //     await this.liveAtlas.anims.play('fishing-sheet', 'reel-in', fishingRod);
-
-
-
-      //     // fishingRod.setVisible(false);
-      //     await new Promise(res => setTimeout(res, 2000));
-
-      //     doThing();
-      //   };
-
-      //   doThing();
-      //   }
-
-
-      //   for(let i = 0; i < 100; i++){
-      //     setTimeout(()=>{
-      //       makePole();
-      //     }, i * 10);
-      //   }
-      // });
-
-
-      this.loadBunchaObjects(500, 600).then(()=>{
-        const p = this.add.particles(this.liveAtlas.textureKey);
-        const e = p.createEmitter({
-          frame: objectData.slice(500, 600),
-          accelerationX: { min: -100, max: 100},
-          accelerationY: { min: -100, max: 100},
-          speed: { min: -100, max: 100},
-          lifespan: 1000,
-          angle: { min: -10, max: 10},
-          on: false,
-        });
-
-        this.input.on('pointermove', (pointer:Phaser.Input.Pointer)=>{
-          e.emitParticleAt(pointer.worldX, pointer.worldY);
-        });
+      await this.liveAtlas.add.spritesheet('confetti-1', '/confetti-1.png', {
+        dimensions: {
+          width: 160,
+          height: 160,
+        },
+        anims: {
+          'default': {
+            frameRate: 60,
+            start: 0,
+            end: 71,
+          },
+        }
       });
+
+
+      // console.log('added confetti..');
+      // await new Promise(res => setTimeout(res, 2000));
+      // console.log('removing confetti..');
+      // this.liveAtlas.removeFrame('confetti-1', true);
+      // console.log('removed');
+
+      this.liveAtlas.add.spritesheet('fishing-sheet', '/fishing-sheet.png', {
+        dimensions: {
+          width: 96,
+          height: 64,
+        },
+        anims: {
+          cast: { frameRate: 6, start: 0, end: 13 },
+          idle: { frameRate: 3, start: 11, end: 13, yoyo: true, repeat: Phaser.FOREVER },
+          nibble: { frameRate: 6, start: 14, end: 17, repeat: Phaser.FOREVER },
+          friction: { frameRate: 8, start: 18, end: 21, yoyo: true, repeat: Phaser.FOREVER },
+          "reel-in": { frameRate: 8, start: 22, end: 33 },
+        }
+      }).then(()=>{
+        const makePole = () => {
+          const fishingRod = this.liveAtlas.make.sprite(Math.random() * this.scale.width, Math.random() * this.scale.height, 'fishing-sheet', 'idle');
+        this.liveAtlas.anims.goto('fishing-sheet', 'cast', fishingRod);
+
+        const doThing = async () => {
+          await this.liveAtlas.anims.play('fishing-sheet', 'cast', fishingRod);
+          await new Promise(res => setTimeout(res, 1000));
+
+          this.liveAtlas.anims.play('fishing-sheet', 'idle', fishingRod);
+          await new Promise(res => setTimeout(res, 300));
+
+          await this.liveAtlas.anims.play('fishing-sheet', 'nibble', fishingRod);
+          await new Promise(res => setTimeout(res, 300));
+
+          this.liveAtlas.anims.play('fishing-sheet', 'friction', fishingRod);
+          await new Promise(res => setTimeout(res, 500));
+
+          await this.liveAtlas.anims.play('fishing-sheet', 'reel-in', fishingRod);
+
+          // fishingRod.setVisible(false);
+          await new Promise(res => setTimeout(res, 2000));
+
+          doThing();
+        };
+
+        doThing();
+        }
+
+
+        for(let i = 0; i < 100; i++){
+          setTimeout(()=>{
+            makePole();
+          }, i * 10);
+        }
+      });
+
+
+      // this.loadBunchaObjects(1000, 1500).then(()=>{
+      //   const p = this.add.particles(this.liveAtlas.textureKey);
+      //   const e = p.createEmitter({
+      //     frame: objectData.slice(1000, 1500),
+      //     accelerationX: { min: -100, max: 100},
+      //     accelerationY: { min: -100, max: 100},
+      //     speed: { min: -100, max: 100},
+      //     lifespan: 1000,
+      //     angle: { min: 0, max: 360},
+      //     alpha: {start: 1, end: 0},
+      //     on: false,
+      //   });
+
+      //   this.input.on('pointermove', (pointer:Phaser.Input.Pointer)=>{
+      //     e.emitParticleAt(pointer.worldX, pointer.worldY);
+      //   });
+      // });
 
 
       // this.liveAtlas.add.spritesheet('confetti-1', '/confetti-1.png', {

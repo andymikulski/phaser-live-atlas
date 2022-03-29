@@ -1,7 +1,7 @@
-import { trimImageEdges, TrimInfo } from "./lib/imageTrimming";
-import { loadViaPhaserLoader, loadViaTextureManager } from "./lib/phaserLoaders";
-import LocalBlobCache from "./lib/LocalBlobCache";
-import ShelfPack, { Bin, Shelf } from "./lib/ShelfPack";
+import { trimImageEdges, TrimInfo } from "./imageTrimming";
+import { loadViaPhaserLoader, loadViaTextureManager } from "./phaserLoaders";
+import LocalBlobCache from "./LocalBlobCache";
+import ShelfPack, { Bin, Shelf } from "./ShelfPack";
 
 const asyncYield = () => new Promise((res) => setTimeout(res, 0));
 
@@ -494,7 +494,6 @@ export class LiveAtlas {
         height: number;
       };
     },
-    // force = false,
   ) => {
     if (this.frames[key]) {
       // Spritesheet already loaded - no work needs to be done
