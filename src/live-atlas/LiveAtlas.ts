@@ -13,10 +13,13 @@ const localCache = new LocalBlobCache("live-atlas");
 
 /**
  * Given a number of bytes, returns a human-readable, simplified representation of the value.
- * ex:
- * getHumanByteSize(100) -> "100 Bytes"
- * getHumanByteSize(1024) -> "1.0 KB"
- * getHumanByteSize(123456789) -> "117.7 MB"
+ *
+ * Examples:
+ * ```
+ * getHumanByteSize(100); // "100 Bytes"
+ * getHumanByteSize(1024); // "1.0 KB"
+ * getHumanByteSize(123456789); // "117.7 MB"
+ * ```
  */
 function convertBytesToHumanReadable(bytes: number) {
   if (bytes === 0) {
@@ -55,6 +58,9 @@ type TrimDimensions = {
   trimmedWidth: number;
   trimmedHeight: number;
 };
+
+// Arbitrary ID used for the LA's internal `canvas` used for image reading + manipulation
+const scratchCanvasID = "live atlas scratch canvas";
 
 /**
  * LiveAtlas - An on-the-fly spritesheet generator with support for serialization, repacking, and more!
@@ -201,7 +207,7 @@ export class LiveAtlas {
     }
 
     if (!this.trimCanvas) {
-      this.trimCanvas = this.rt.scene.textures.createCanvas("trim canvas", src.width, src.height);
+      this.trimCanvas = this.rt.scene.textures.createCanvas(scratchCanvasID, src.width, src.height);
     } else {
       this.trimCanvas.setSize(src.width, src.height);
     }
@@ -309,10 +315,8 @@ export class LiveAtlas {
    * For more information, see `addFrameByURL`.
    */
   public addMultipleFramesByURL = async (textureUrls: string[], force = false) => {
-    const proms: Promise<void>[] = [];
-    for (const url of textureUrls) {
-      proms.push(this.addFrameByURL(url, url, force));
-    }
+    // Convert list of URLs into promises, then wait for all of those promises to resolve
+    const proms: Promise<void>[] = textureUrls.map((url) => this.addFrameByURL(url, url, force));
     return Promise.all(proms);
   };
 
@@ -616,6 +620,8 @@ export class LiveAtlas {
         );
 
     if (!packedFrame) {
+      // This happens when the packer has hit its maximum dimensions
+      // (which means we have hit the user's max texture size and need to create another RT)
       console.warn("Could not pack new frame with key: " + frameKey);
       return;
     }
@@ -726,6 +732,7 @@ export class LiveAtlas {
     this.frames[frame] = new Phaser.Geom.Rectangle(0, 0, 1, 1);
     this.rt.texture.add(frame, 0, 0, 0, 1, 1);
   }
+
   /**
    * Uses binpacking on the registered atlas frames and then redraws the render texture to use
    * the more optimal layout. Frames associated with the atlas are automatically updated accordingly
@@ -1218,7 +1225,7 @@ export class LiveAtlas {
     if (imgDataSource instanceof HTMLCanvasElement) {
       if (!this.trimCanvas) {
         this.trimCanvas = this.rt.scene.textures.createCanvas(
-          "trim canvas",
+          scratchCanvasID,
           this.rt.width,
           this.rt.height,
         );
