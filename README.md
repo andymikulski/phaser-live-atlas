@@ -47,8 +47,11 @@ Features:
 
 TODO:
 - Split texture into multiple sources (multiple RTs) so we can effectively have a multiatlas backed by render textures
-- Identify WebGL vs Canvas issues and maybe report to the Phaser repo?
 - Fill out README a bit more
+
+IN PROGRESS:
+- Identify WebGL vs Canvas issues and maybe report to the Phaser repo
+  - https://github.com/photonstorm/phaser/issues/6057
 
 BUGS:
 - Multiple things calling `addFrame` at the same time produces weird results
