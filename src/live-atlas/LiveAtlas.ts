@@ -39,7 +39,7 @@ function convertBytesToHumanReadable(bytes: number) {
  */
 type SerializedAtlas = {
   frames: {
-    [id: string]: { x: number; y: number; width: number; height: number };
+    [id: string]: { x: number; y: number; width: number; height: number; trim: null | TrimInfo };
   };
   image: string;
   packerData: string;
@@ -142,7 +142,15 @@ export class LiveAtlas {
   /**
    * Dictionary of image/frame URLs and their corresponding placement in the atlas.
    */
-  private frames: { [frameKey: string]: Phaser.Geom.Rectangle } = {};
+  private frames: {
+    [frameKey: string]: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      trim: null | TrimInfo;
+    };
+  } = {};
 
   /**
    * Dictionary of spritesheet URLs and the names of their subframes installed on this atlas.
@@ -686,12 +694,13 @@ export class LiveAtlas {
 
     // Remove frame padding from the final rect so our frame isn't larger than its content
     const halfPadding = (this.framePadding / 2) | 0;
-    this.frames[frameKey] = new Phaser.Geom.Rectangle(
-      packedFrame.x,
-      packedFrame.y,
-      packedFrame.width - halfPadding,
-      packedFrame.height - halfPadding,
-    );
+    this.frames[frameKey] = {
+      x: packedFrame.x,
+      y: packedFrame.y,
+      width: packedFrame.width - halfPadding,
+      height: packedFrame.height - halfPadding,
+      trim: dimensions.trim ?? null,
+    };
 
     return packedFrame;
   };
@@ -787,7 +796,14 @@ export class LiveAtlas {
       return;
     }
 
-    this.frames[frame] = new Phaser.Geom.Rectangle(0, 0, 1, 1);
+    this.frames[frame] = {
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      trim: null,
+    };
+
     this.rt.texture.add(frame, 0, 0, 0, 1, 1);
   }
 
@@ -835,6 +851,7 @@ export class LiveAtlas {
     this.rt.resize(this.packer.width, this.packer.height);
 
     // clear frames
+    const oldFrames = this.frames;
     this.frames = {};
 
     // loop through each packed rect,
@@ -842,13 +859,15 @@ export class LiveAtlas {
       const { id, x, y } = rect;
       // and draw the preserved frame at the _new_ rect position
       this.drawPreservedFrame(id, x, y);
-
-      this.frames[id.toString()] = new Phaser.Geom.Rectangle(
-        rect.x,
-        rect.y,
-        rect.width,
-        rect.height,
-      );
+      const sId = id.toString();
+      const incomingFrame = {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        trim: oldFrames[sId]?.trim ?? null, // <-------------------------------------------------------
+      };
+      this.frames[sId] = incomingFrame;
 
       // Add frame to RT
       let frame = this.rt.texture.get(id);
@@ -856,8 +875,18 @@ export class LiveAtlas {
         frame = this.rt.texture.add(id.toString(), 0, rect.x, rect.y, rect.width, rect.height);
       }
 
-      // frame.setTrim(rect.width, rect.height, 0, 0, rect.width, rect.height);
-      frame.setSize(rect.width, rect.height, rect.x, rect.y);
+      // We need to re-apply the frame trimming that was previously applied.
+      // (Without this step, the repack _works_ but then images are displayed with incorrect offsets)
+      frame
+        .setSize(rect.width - this.framePadding, rect.height - this.framePadding, rect.x, rect.y)
+        .setTrim(
+          incomingFrame.trim?.originalWidth ?? rect.width,
+          incomingFrame.trim?.originalHeight ?? rect.height,
+          incomingFrame.trim?.x ?? 0,
+          incomingFrame.trim?.y ?? 0,
+          incomingFrame.trim?.trimmedWidth ?? rect.width,
+          incomingFrame.trim?.trimmedHeight ?? rect.height,
+        );
     }
 
     // finally, free the preserved state entirely
@@ -1307,7 +1336,7 @@ export class LiveAtlas {
     }
 
     return {
-      frames: this.serializeFrames(),
+      frames: this.frames,
       image: url,
       packerData: JSON.stringify(this.packer),
     };
@@ -1324,6 +1353,7 @@ export class LiveAtlas {
         height: number;
         x: number;
         y: number;
+        trim: null | TrimInfo;
       };
     },
     imageUri: string,
@@ -1332,7 +1362,7 @@ export class LiveAtlas {
     const key = this.textureKey + "-import-" + Math.random();
 
     // Update frames
-    this.frames = this.deserializeFrames(frames);
+    this.frames = frames; // this.deserializeFrames(frames);
 
     // Add frames to the texture
     for (const frameUrl in this.frames) {
@@ -1400,57 +1430,6 @@ export class LiveAtlas {
 
     // Imports should not trigger repacks unless further edits are made
     this.clearRepackFlag();
-  };
-
-  /**
-   * Converts this atlases's `frames` property into a set of objects with shape:
-   *   `{ x: number; y: number; width: number; height: number; }`
-   *
-   * This is primarily used when saving an atlas to a text/JSON format.
-   */
-  private serializeFrames = () => {
-    return Object.keys(this.frames).reduce<{
-      [imageUrl: string]: {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-      };
-    }>((acc, frameUrl) => {
-      const frame = this.frames[frameUrl];
-      if (!frame) {
-        return acc;
-      }
-      acc[frameUrl] = {
-        x: frame.x,
-        y: frame.y,
-        width: frame.width,
-        height: frame.height,
-      };
-      return acc;
-    }, {});
-  };
-
-  /**
-   * Converts serialized frames (POJOs) into `Phaser.Geom.Rectangle`s.
-   * This is primarily used when importing `frames`, probably from a serialized atlas.
-   */
-  private deserializeFrames = (incomingFrames: {
-    [imageUrl: string]: {
-      width: number;
-      height: number;
-      x: number;
-      y: number;
-    };
-  }) => {
-    return Object.keys(incomingFrames).reduce<typeof this.frames>((acc, frameUrl) => {
-      const frame = incomingFrames[frameUrl];
-      if (!frame) {
-        return acc;
-      }
-      acc[frameUrl] = new Phaser.Geom.Rectangle(frame.x, frame.y, frame.width, frame.height);
-      return acc;
-    }, {});
   };
 
   /**

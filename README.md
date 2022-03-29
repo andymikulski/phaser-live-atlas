@@ -51,7 +51,6 @@ TODO:
 - Fill out README a bit more
 
 BUGS:
-- `repack` seems to mess with spritesheet frame offsets
 - Multiple things calling `addFrame` at the same time produces weird results
   - race condition with loading/processing - we constantly create/destroy/etc even though once is enough
 
