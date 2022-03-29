@@ -10,6 +10,7 @@ Features:
  - Serialization support
     - localStorage + sessionStorage support for smaller atlases (< 5mb)
     - IndexedDB support for atlases larger than
+ - Storage utils to determine current usage, max size limit, and prompt user for persistence.
 
 ## Usage (high-level)
 
@@ -22,7 +23,7 @@ Features:
 1. Finally, the frame is drawn into the LA texture, effectively making it available for use
   1. If the texture under the hood is not large enough, the size increases accordingly before drawing
 1. By default, new assets are not guaranteed to be placed into the atlas in the most optimal configuration. When necessary, the atlas can be `repack`ed or `compress`ed to save space and find a more optimal packing.
-1. Finally, we can serialize the atlas via the `save` methods available:
+1. Finally, we can serialize the atlas via the `save` methods available (and later imported via `load`):
   1. `toLocalStorage`
   1. `toSessionStorage`
   1. `toIndexedDB`
@@ -36,15 +37,13 @@ TODO:
 - Removing a base spritesheet URL should remove all of its subframes
 - Split texture into multiple sources (multiple RTs) so we can effectively have a multiatlas backed by render textures
 - Identify WebGL vs Canvas issues and maybe report to the Phaser repo?
-- Maybe use/expose `navigator.storage.persist` ?
 - Fill out README a bit more
 
 BUGS:
-- Spritesheet frames have incorrect original width/heights and so don't appear in the correct position when ran in sequence
 - Multiple things calling `addFrame` at the same time produces weird results
   - race condition with loading/processing - we constantly create/destroy/etc even though once is enough
 
-CANCELLED:
+NON-GOALS:
 
 - Off-thread texture save?
   - This can be handled by the application embedding the LA

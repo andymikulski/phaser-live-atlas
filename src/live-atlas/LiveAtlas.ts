@@ -469,6 +469,7 @@ export class LiveAtlas {
       [];
 
     if (config.frames) {
+      // Named frames
       for (const name in config.frames) {
         const frame = config.frames[name];
         if (!frame) {
@@ -480,6 +481,7 @@ export class LiveAtlas {
         });
       }
     } else if (config.dimensions) {
+      // Frame dimensions - we need to slice the pieces ourselves
       const { width, height } = config.dimensions;
       const horizSlices = Math.ceil(frame.realWidth / width);
       const vertSlices = Math.ceil(frame.realHeight / height);
@@ -511,7 +513,8 @@ export class LiveAtlas {
       return a.height > b.height ? -1 : 1;
     });
 
-    let strobe = false;
+    // Basic tracking var for conditionaly yielding when processing frames (see below)
+    let strobe = true;
 
     // for each slice/image part,
     for (const incomingFrame of framesToProcess) {
@@ -525,16 +528,19 @@ export class LiveAtlas {
         incomingFrame.width,
         incomingFrame.height,
       );
+
+      // Examine the image data and determine where the content actually lies in the frame
+      // This is used to trim excess transparency from the image to optimally pack it in the atlas.
       const trimFraming = this.trimTransparency(imgTexture, frameKey);
+      // TODO: Maybe ignore fully trimmed images?
 
       // Yield every other frame - this ensures that one large spritesheet doesn't prevent other things
-      // from loading in tandem
+      // from loading in tandem. (Each time this runs, the thread is "freed" and something else can
+      // run for the rest of the frame.)
       strobe = !strobe;
       if (strobe) {
         await asyncYield();
       }
-
-      // TODO: Maybe ignore fully trimmed images?
 
       // Apply trim to this frame so when we draw this frame we don't have to account for
       // extra whitespace/padding around the image
@@ -549,6 +555,10 @@ export class LiveAtlas {
           trimFraming.trimmedHeight,
         );
       }
+
+      // Dimensions for the frame that is about to be packed into the atlas
+      // Note we need both width/height _and_ the trim - the trim is still used when _drawing_ the
+      // image to the RT.
       const dimensions = {
         width: trimFraming?.trimmedWidth ?? textureFrame.realWidth,
         height: trimFraming?.trimmedHeight ?? textureFrame.realHeight,
@@ -559,6 +569,8 @@ export class LiveAtlas {
       const bin = this.packNewFrame(frameKey, dimensions);
 
       if (!bin) {
+        // This happens when the packer has hit its maximum dimensions
+        // (which means we have hit the user's max texture size and need to create another RT)
         console.warn("There was an issue adding spritesheet frame to atlas! " + frameKey);
         continue;
       }
@@ -588,6 +600,9 @@ export class LiveAtlas {
       trim: null | TrimInfo;
     },
   ) => {
+    // Note that these dimensions have `framePadding` added - this is to ensure that when the
+    // rect is passed into the packer, padding is automatically found/added accordingly.
+    // This is undone afterward to ensure that the frame reflects the content area.
     const packedFrame = dimensions?.trim
       ? this.packer.packOne(
           dimensions.trim.trimmedWidth + this.framePadding,
@@ -605,6 +620,7 @@ export class LiveAtlas {
       return;
     }
 
+    // Remove frame padding from the final rect so our frame isn't larger than its content
     const halfPadding = (this.framePadding / 2) | 0;
     this.frames[frameKey] = new Phaser.Geom.Rectangle(
       packedFrame.x,
@@ -1674,6 +1690,20 @@ export class LiveAtlas {
       localStorage.removeItem(storageKey);
       sessionStorage.removeItem(storageKey);
       await localCache.freeBlob(storageKey);
+    },
+
+    /**
+     * Uses the browser-provided mechanism to request permission from the user if we can persist
+     * data beyond typical browser limitations. From MDN:
+     *
+     * If persistence is granted,
+     * > Storage will not be cleared except by explicit user action
+     *
+     * If persistence is NOT granted,
+     * > Storage may be cleared when under storage pressure
+     */
+    requestPersistence: async (): Promise<boolean> => {
+      return await navigator.storage.persist();
     },
   } as const;
 
