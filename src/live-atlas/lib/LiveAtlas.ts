@@ -374,7 +374,7 @@ export class LiveAtlas {
    *
    * For more information, see `addFrameByURL`.
    */
-  public addMultipleFramesByURL = async (textureUrls: string[], force = false) => {
+  private addMultipleFramesByURL = async (textureUrls: string[], force = false) => {
     // Convert list of URLs into promises, then wait for all of those promises to resolve
     const proms: Promise<void>[] = textureUrls.map((url) => this.addFrameByURL(url, url, force));
     return Promise.all(proms);
@@ -397,7 +397,7 @@ export class LiveAtlas {
    * - Pack the frame into the atlas
    * - Draw the new frame into the atlas accordingly
    */
-  public addFrameByURL = async (textureKey: string, textureUrl?: string, force = false) => {
+  private addFrameByURL = async (textureKey: string, textureUrl?: string, force = false) => {
     textureUrl = textureUrl ?? textureKey;
     if (!textureUrl || (!force && (!textureKey || this.frames[textureKey]))) {
       return;
