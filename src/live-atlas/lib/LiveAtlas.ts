@@ -1242,7 +1242,29 @@ export class LiveAtlas {
    * with this LiveAtlas.
    */
   public make = {
-    image: (x: number, y: number, frame: string): Phaser.GameObjects.Image => {
+    image: (
+      x: number,
+      y: number,
+      frame: string,
+      spritesheet?: string,
+    ): Phaser.GameObjects.Image => {
+      // Images made from spritesheets operate slightly differently, in that they don't attempt to
+      // load any missing frames and instead will just error out if the parent spritesheet is missing.
+      if (spritesheet) {
+        if (!this.hasFrame(spritesheet)) {
+          throw new Error(
+            "Missing spritesheet " +
+              spritesheet +
+              " when trying to make image. Did you call `add.spritesheet` first?",
+          );
+        }
+        const key = `${spritesheet}-${frame}`;
+        return this.scene.add.image(x, y, this.textureKey, key);
+      }
+
+      // Normal/non-spritesheet images will attempt to load if missing, also ensuring that a frame
+      // exists on the atlas to prevent any missing texture warnings in console.
+
       const hasFrameAlready = this.hasFrame(frame);
       // Register `frame` as a texture on this frame immediately
       // (This prevents `frame missing` warnings in console.)

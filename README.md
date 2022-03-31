@@ -3,13 +3,11 @@
 
 Features:
  - Add/remove atlas frames on the fly
- - "Pixel art mode" available for a crisp texture appearance
+ - Image transparency trimming for smaller memory footprints.
  - Factories for creating new Phaser objects that are tied into the atlas
    - All factories return native Phaser `GameObject`s (i.e. `Image` or `Sprite`)
    - `atlas.make.image()` creates a `Image` with the correct atlas reference
    - `atlas.make.sprite()` creates a `Sprite`
- - Image transparency trimming
-    - Including spritesheet frames!
  - Spritesheet support
     - Import other spritesheets into your atlas
     - Each sprite frame is trimmed and packed just like any other image, saving space
@@ -23,25 +21,26 @@ Features:
     - localStorage + sessionStorage support for smaller atlases (< 5mb)
     - IndexedDB support for atlases larger than
  - Storage utils to determine current usage, max size limit, and prompt user for persistence.
+ - "Pixel art mode" available for a crisp texture appearance
 
 ## Usage (high-level)
 
 1. A new `LiveAtlas` is created, and "frames" are registered with the atlas accordingly
 1. When a new frame is registered with the atlas, it is immediately created and made available for use - regardless of the state of the actual asset being loaded
-  1. This allows devs to immediately reference a frame within the atlas without worrying about missing frame errors
+    1. This allows devs to immediately reference a frame within the atlas without worrying about missing frame errors
 1. A network request is made (via Phaser) for the texture asset.
 1. Upon load, the frame's image data is quickly trimmed of its transparency
 1. The new, trimmed frame is put into the "packer" and a spot for it is found in the LA texture
 1. Finally, the frame is drawn into the LA texture, effectively making it available for use
-  1. If the texture under the hood is not large enough, the size increases accordingly before drawing
-1. By default, new assets are not guaranteed to be placed into the atlas in the most optimal configuration. When necessary, the atlas can be `repack`ed to save space and find a more optimal packing.
+    1. If the texture under the hood is not large enough, the size increases accordingly before drawing
+1. New assets are not guaranteed to be placed into the atlas in the most optimal configuration. When necessary, the atlas can be `repack`ed to save space and find a more optimal packing.
 1. Finally, we can serialize the atlas via the `save` methods available (and later imported via `load`):
-  1. `toLocalStorage`
-  1. `toSessionStorage`
-  1. `toIndexedDB`
-  1. `toBrowserStorage` - Selects local storage or IDB depending on the atlas size.
-  1. `toDiskFile` - Saves the image, frame, and packer data to an `.ATLAS` file
-  1. `toImage` - Returns the spritesheet as an `HTMLImageElement`, useful for debugging.
+    1. `toLocalStorage`
+    1. `toSessionStorage`
+    1. `toIndexedDB`
+    1. `toBrowserStorage` - Selects local storage or IDB depending on the atlas size.
+    1. `toDiskFile` - Saves the image, frame, and packer data to an `.ATLAS` file
+    1. `toImage` - Returns the spritesheet as an `HTMLImageElement`, useful for debugging.
 
 
 ## Usage (examples)
@@ -94,15 +93,83 @@ liveAtlas.applyFrame('my-other-texture-key', img);
 ```
 
 
-### Animated Sprites
+#### Spritesheets
+There are a couple extra parts required when importing spritesheets: defining the frames (or cells), and optionally defining any animations inside that spritesheet.
 
-There are a couple extra parts required when importing spritesheets: defining the frames (or cells), and defining any animations inside that spritesheet.
+##### Importing spritesheets using `frames`
+```ts
+// Load the spritesheet into the atlas before use
+liveAtlas.add.spritesheet('inventory-items', '/items.png', {
+  // We can pass `frames` to denote exactly what each frame is
+  frames: {
+    "sword": {x: 0, y: 0, width: 32, height: 64},
+    "potion": {x: 32, y: 0, width: 32, height: 64},
+    "key": {x: 32, y: 64, width: 32, height: 64},
+    // ... etc ...
+  }
+});
+
+// Frames are namespaced under their spritesheet's key
+const img = liveAtlas.make.image(x, y, 'sword', 'inventory-items');
+const img2 = liveAtlas.make.image(x, y, 'potion', 'inventory-items');
+const img3 = liveAtlas.make.image(x, y, 'key', 'inventory-items');
+```
+
+##### Importing spritesheets using `dimensions`
+```ts
+// Load the spritesheet into the atlas before use
+liveAtlas.add.spritesheet('inventory-items', '/items.png', {
+  // This tells the LiveAtlas that each frame of this spritesheet is 96px wide by 64px tall
+  // Each frame is labeled `0..n-1` where `n` is the number of frames found in the spritesheet.
+  // Frames are numbered moving from left to right, top to bottom.
+  dimensions: {
+    width: 96,
+    height: 64,
+  },
+});
+
+// Frames are namespaced under their spritesheet's key
+const img = liveAtlas.make.image(x, y, 0, 'inventory-items');
+const img2 = liveAtlas.make.image(x, y, 1, 'inventory-items');
+const img3 = liveAtlas.make.image(x, y, 2, 'inventory-items');
+```
+
+
+#### Spritesheet Animations
+Spritesheets can take an optional `anims` configuration object, which takes the following shape:
+
+```ts
+{
+  [animationName: string]: {
+    // `start`/`end` is used to denote the sequence of frames to use for this animation.
+    start?: number;
+    end?: number;
+    // `frames` denotes individual frames for the animation, useful if your frames are named
+    // or are not in sequential order.
+    frames?: number[];
+
+    // Duration of the animation in milliseconds. If not specified, `frameRate` must be present.
+    duration?: number;
+    // Framerate of the animation. If not specified, `duration` must be present.
+    frameRate?: number;
+
+    // Repeat/delays
+    repeat?: number;
+    repeatDelay?: number;
+    delay?: number;
+
+    // `yoyo` will have the animation play forward and then in reverse
+    yoyo?: boolean;
+  }
+}
+
+```
+
+#### Complete example
 
 ```ts
 // Load the spritesheet into the atlas before use
 liveAtlas.add.spritesheet('fishing', '/fishing-spritesheet.png', {
-  // We can either pass in `dimensions` which denote the size of the sheet frames,
-  // or we can pass in `frames` and define each frame via hashmap. See below for an example.
   dimensions: {
     width: 96,
     height: 64,
@@ -153,6 +220,8 @@ await liveAtlas.add.spritesheet('confetti', '/confetti-spritesheet.png', {
 // Note this function returns a `Sprite`, but by default will automatically destroy
 // the sprite once the animation is complete.
 liveAtlas.make.animation(x, y, 'confetti');
+// We can also one-shot any other animation stored in the atlas:
+liveAtlas.make.animation(x, y, 'fishing', 'cast');
 ```
 
 ### Particle Systems
