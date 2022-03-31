@@ -236,6 +236,70 @@ const emitter = manager.createEmitter({
 });
 ```
 
+
+
+
+## Serialization
+
+#### Saving
+
+Each LiveAtlas instance has a `save` field with several options on how to get the compiled atlas data:
+
+```ts
+
+// LocalStorage and SessionStorage have a size limit of ~5mb and are unlikely to persist for long.
+await liveAtlas.save.toLocalStorage();
+await liveAtlas.save.toSessionStorage();
+// You can also save to IndexedDB which has a considerably higher storage limit
+await liveAtlas.save.toIndexedDB();
+// Using `toBrowserStorage` will automatically choose LocalStorage or IndexedDB based on the atlas size.
+await liveAtlas.save.toBrowserStorage();
+
+// This will prompt a download of a file with extension `.atlas`. This file contains everything required
+// to be imported into another LiveAtlas.
+await liveAtlas.save.toDiskFile();
+
+// Just want the data?
+const atlasData = await liveAtlas.save.toJSON();
+
+// You can also get an `HTMLImageElement`, particularly nice for debugging:
+const img = await liveAtlas.save.toImage();
+```
+
+
+#### Loading
+
+There are a few options for loading a serialized atlas.
+
+First, you can load from the browser storage:
+```ts
+await liveAtlas.load.fromLocalStorage();
+await liveAtlas.load.fromSessionStorage();
+await liveAtlas.load.fromBrowserStorage();
+```
+
+There are a number of way to load files that have been save to disk and have been loaded in via drag-n-drop, `fs`, etc:
+```ts
+await liveAtlas.load.fromBlob(yourBlob);
+await liveAtlas.load.fromDiskFile(yourBlobOrFileOrJson);
+await liveAtlas.load.fromNetworkRequest('/path/to/file.atlas', { /* fetch options */ });
+```
+
+
+#### Storage Utils
+
+There are also a number of utilities available for managing browser storage.
+
+```ts
+// Determine how much space can be used - useful for displaying to end users of your game
+await liveAtlas.storage.getQuotaEstimate();
+
+// Determines how much space is being used by the given atlas in storage
+// Note this only measures the _stored_ size - if the atlas is not stored then this wil be 0.
+await liveAtlas.storage.getStoredSize();
+```
+
+
 ---
 
 TODO:

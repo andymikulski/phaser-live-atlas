@@ -1071,7 +1071,173 @@ export class LiveAtlas {
     return "atlas-" + this.id + "-" + spritesheet + "-" + animName;
   };
 
-  // Factory API -----------------------------------------------------------------------------------
+  /**
+   * Resizes a given object to fit the current frame it is assigned to.
+   * This also takes origin into account and ensures that the same anchor point persists after resizing.
+   *
+   * This is primarily used after `addFrame` resolves to ensure that atlas-based objects have the
+   * correct dimensions applied based on whatever just loaded.
+   */
+  private sizeObjectToFrame(
+    img: Phaser.GameObjects.Components.Size &
+      Phaser.GameObjects.Components.Origin &
+      Phaser.GameObjects.Components.Texture,
+  ) {
+    // Grab the current origins in case we need to put them back
+    const imgOriginX = img.originX;
+    const imgOriginY = img.originY;
+
+    // Update the frame size to match the currently loaded texture
+    img.setSizeToFrame(img.frame);
+
+    // If the origin is still at -1, this means a dev has not called `setOrigin` on this image yet.
+    // This means that we need to deterine the origin from the new frame size.
+    if (imgOriginX === -1 && imgOriginY === -1) {
+      img.setOriginFromFrame();
+    } else {
+      // If the origin is anything other than -1, we want to just re-apply the origin previously
+      // set by the dev. This effectively means the frame will scale to the correct size, but the
+      // given `img` will still obey the last `setOrigin` call.
+      img.setOrigin(imgOriginX, imgOriginY);
+    }
+  }
+
+  /**
+   * Serializes all of the relevenat bits of information to restore an Atlas, and returns a POJO containing
+   * the data. This data is later converted into a JSON string and stored in browser storage (or to disk).
+   */
+  private exportSerializedData = async (): Promise<SerializedAtlas> => {
+    const imgDataSource = this.rt.texture.getSourceImage();
+    let url;
+
+    /**
+     * Canvas rendering ---
+     * Uses a temporary canvas to effectively take a snapshot of the RenderTexture for this atlas.
+     */
+    if (imgDataSource instanceof HTMLCanvasElement) {
+      if (!this.trimCanvas) {
+        this.trimCanvas = this.rt.scene.textures.createCanvas(
+          scratchCanvasID,
+          this.rt.width,
+          this.rt.height,
+        );
+      } else {
+        this.trimCanvas.setSize(this.rt.width, this.rt.height);
+      }
+
+      this.trimCanvas.draw(0, 0, imgDataSource);
+      url = this.trimCanvas.canvas.toDataURL();
+      url = imgDataSource.toDataURL();
+
+      this.trimCanvas.setSize(1, 1);
+      this.trimCanvas.clear();
+    } else {
+      /**
+       * WebGl rendering ---
+       * Currently not yet implemented. Will need to sample the RT framebuffer and probably do
+       * a similar canvas dance as above.
+       */
+      throw new Error("WebGL serialization not yet supported!");
+    }
+
+    return {
+      frames: this.frames,
+      image: url,
+      packerData: JSON.stringify(this.packer),
+    };
+  };
+
+  /**
+   * Replaces the contents of this atlas with incoming data.
+   * This is primarily used by the `load` methods.
+   */
+  private importExistingAtlas = async (
+    frames: {
+      [imageUrl: string]: {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+        trim: null | TrimInfo;
+      };
+    },
+    imageUri: string,
+    packerData: string,
+  ) => {
+    const key = this.textureKey + "-import-" + Math.random();
+
+    // Update frames
+    this.frames = frames; // this.deserializeFrames(frames);
+
+    // Add frames to the texture
+    for (const frameUrl in this.frames) {
+      const frame = this.frames[frameUrl];
+      if (!frame) {
+        continue;
+      }
+      this.rt.texture.add(frameUrl, 0, frame.x, frame.y, frame.width, frame.height);
+    }
+
+    // Update the packer to reflect the state it was in when serialized
+    const incomingPacker = JSON.parse(packerData);
+    this.packer = new ShelfPack(1, 1, true);
+
+    // Basically just replace all of the packer properties with what was saved
+    for (const key in incomingPacker) {
+      // `shelves` in particular need some massaging into the proper classes and types.
+      if (key === "shelves") {
+        for (let i = 0; i < incomingPacker[key].length; i++) {
+          const incomingShelf = incomingPacker[key][i];
+          const shelf = new Shelf(incomingShelf.y, incomingShelf.width, incomingShelf.height);
+          shelf.free = incomingShelf.free;
+          shelf.x = incomingShelf.x;
+          this.packer.shelves.push(shelf);
+        }
+      } else {
+        // Every field other than `shelves` will just be replaced.
+        if (this.packer.hasOwnProperty(key)) {
+          // @ts-expect-error
+          this.packer[key] = incomingPacker[key];
+        }
+      }
+    }
+
+    // Actually the load the base64-encoded image into Phaser via the TextureManager.
+    let texture;
+    try {
+      texture = await loadViaTextureManager(this.scene, key, imageUri);
+    } catch (err) {
+      console.log("Error importing serialized atlas image..", err);
+      return;
+    }
+
+    // Phaser vaguely types `texture.frames` as `object`. We augment the types here accordingly.
+    // eslint-disable-next-line
+    const textureFrames = texture.frames as {
+      [key: string]: Phaser.Textures.Frame;
+    };
+
+    // Reference the _BASE frame so we can quickly determine the dimensions of this texture
+    const frame = textureFrames[texture.firstFrame];
+    if (!frame) {
+      // This shouldn't happen
+      console.warn("LiveAtlas : could not find base frame when importing texture!");
+      return;
+    }
+
+    // Scale the render texture and populate it with graphics
+    this.rt.clear();
+    this.rt.resize(frame.width, frame.height);
+    this.rt.draw(key, 0, 0, 1);
+
+    // Remove the base64 texture since it's now in the RT
+    this.scene.textures.remove(key);
+
+    // Imports should not trigger repacks unless further edits are made
+    this.clearRepackFlag();
+  };
+
+  // -----------------------------------------------------------------------------------
 
   /**
    * Utility functions to load new frames into this atlas.
@@ -1315,143 +1481,6 @@ export class LiveAtlas {
       return img;
     },
   } as const;
-
-  // Serialization + Storage API -------------------------------------------------------------------
-
-  /**
-   * Serializes all of the relevenat bits of information to restore an Atlas, and returns a POJO containing
-   * the data. This data is later converted into a JSON string and stored in browser storage (or to disk).
-   */
-  private exportSerializedData = async (): Promise<SerializedAtlas> => {
-    const imgDataSource = this.rt.texture.getSourceImage();
-    let url;
-
-    /**
-     * Canvas rendering ---
-     * Uses a temporary canvas to effectively take a snapshot of the RenderTexture for this atlas.
-     */
-    if (imgDataSource instanceof HTMLCanvasElement) {
-      if (!this.trimCanvas) {
-        this.trimCanvas = this.rt.scene.textures.createCanvas(
-          scratchCanvasID,
-          this.rt.width,
-          this.rt.height,
-        );
-      } else {
-        this.trimCanvas.setSize(this.rt.width, this.rt.height);
-      }
-
-      this.trimCanvas.draw(0, 0, imgDataSource);
-      url = this.trimCanvas.canvas.toDataURL();
-      url = imgDataSource.toDataURL();
-
-      this.trimCanvas.setSize(1, 1);
-      this.trimCanvas.clear();
-    } else {
-      /**
-       * WebGl rendering ---
-       * Currently not yet implemented. Will need to sample the RT framebuffer and probably do
-       * a similar canvas dance as above.
-       */
-      throw new Error("WebGL serialization not yet supported!");
-    }
-
-    return {
-      frames: this.frames,
-      image: url,
-      packerData: JSON.stringify(this.packer),
-    };
-  };
-
-  /**
-   * Replaces the contents of this atlas with incoming data.
-   * This is primarily used by the `load` methods.
-   */
-  private importExistingAtlas = async (
-    frames: {
-      [imageUrl: string]: {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-        trim: null | TrimInfo;
-      };
-    },
-    imageUri: string,
-    packerData: string,
-  ) => {
-    const key = this.textureKey + "-import-" + Math.random();
-
-    // Update frames
-    this.frames = frames; // this.deserializeFrames(frames);
-
-    // Add frames to the texture
-    for (const frameUrl in this.frames) {
-      const frame = this.frames[frameUrl];
-      if (!frame) {
-        continue;
-      }
-      this.rt.texture.add(frameUrl, 0, frame.x, frame.y, frame.width, frame.height);
-    }
-
-    // Update the packer to reflect the state it was in when serialized
-    const incomingPacker = JSON.parse(packerData);
-    this.packer = new ShelfPack(1, 1, true);
-
-    // Basically just replace all of the packer properties with what was saved
-    for (const key in incomingPacker) {
-      // `shelves` in particular need some massaging into the proper classes and types.
-      if (key === "shelves") {
-        for (let i = 0; i < incomingPacker[key].length; i++) {
-          const incomingShelf = incomingPacker[key][i];
-          const shelf = new Shelf(incomingShelf.y, incomingShelf.width, incomingShelf.height);
-          shelf.free = incomingShelf.free;
-          shelf.x = incomingShelf.x;
-          this.packer.shelves.push(shelf);
-        }
-      } else {
-        // Every field other than `shelves` will just be replaced.
-        if (this.packer.hasOwnProperty(key)) {
-          // @ts-expect-error
-          this.packer[key] = incomingPacker[key];
-        }
-      }
-    }
-
-    // Actually the load the base64-encoded image into Phaser via the TextureManager.
-    let texture;
-    try {
-      texture = await loadViaTextureManager(this.scene, key, imageUri);
-    } catch (err) {
-      console.log("Error importing serialized atlas image..", err);
-      return;
-    }
-
-    // Phaser vaguely types `texture.frames` as `object`. We augment the types here accordingly.
-    // eslint-disable-next-line
-    const textureFrames = texture.frames as {
-      [key: string]: Phaser.Textures.Frame;
-    };
-
-    // Reference the _BASE frame so we can quickly determine the dimensions of this texture
-    const frame = textureFrames[texture.firstFrame];
-    if (!frame) {
-      // This shouldn't happen
-      console.warn("LiveAtlas : could not find base frame when importing texture!");
-      return;
-    }
-
-    // Scale the render texture and populate it with graphics
-    this.rt.clear();
-    this.rt.resize(frame.width, frame.height);
-    this.rt.draw(key, 0, 0, 1);
-
-    // Remove the base64 texture since it's now in the RT
-    this.scene.textures.remove(key);
-
-    // Imports should not trigger repacks unless further edits are made
-    this.clearRepackFlag();
-  };
 
   /**
    * Serialization functions to export data and save it to the local machine.
@@ -1771,35 +1800,4 @@ export class LiveAtlas {
       return await navigator.storage.persist();
     },
   } as const;
-
-  /**
-   * Resizes a given object to fit the current frame it is assigned to.
-   * This also takes origin into account and ensures that the same anchor point persists after resizing.
-   *
-   * This is primarily used after `addFrame` resolves to ensure that atlas-based objects have the
-   * correct dimensions applied based on whatever just loaded.
-   */
-  private sizeObjectToFrame(
-    img: Phaser.GameObjects.Components.Size &
-      Phaser.GameObjects.Components.Origin &
-      Phaser.GameObjects.Components.Texture,
-  ) {
-    // Grab the current origins in case we need to put them back
-    const imgOriginX = img.originX;
-    const imgOriginY = img.originY;
-
-    // Update the frame size to match the currently loaded texture
-    img.setSizeToFrame(img.frame);
-
-    // If the origin is still at -1, this means a dev has not called `setOrigin` on this image yet.
-    // This means that we need to deterine the origin from the new frame size.
-    if (imgOriginX === -1 && imgOriginY === -1) {
-      img.setOriginFromFrame();
-    } else {
-      // If the origin is anything other than -1, we want to just re-apply the origin previously
-      // set by the dev. This effectively means the frame will scale to the correct size, but the
-      // given `img` will still obey the last `setOrigin` call.
-      img.setOrigin(imgOriginX, imgOriginY);
-    }
-  }
 }
