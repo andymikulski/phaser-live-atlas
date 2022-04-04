@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import MainScene from './scenes/MainScene';
+import DemoScene from './scenes/DemoScene';
 
 setTimeout(()=>{
   new Phaser.Game({
@@ -22,7 +22,7 @@ setTimeout(()=>{
       }
     },
     // Entry point
-    scene: MainScene // or PhysicsScene
+    scene: DemoScene // or PhysicsScene
   })
 
 }, 1000);
