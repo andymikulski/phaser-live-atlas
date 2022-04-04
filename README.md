@@ -78,6 +78,15 @@ liveAtlas.add.imageList(['/path/to/image1.png', '/path/to/image2.jpg']);
 liveatlas.add.spritesheet(/*...*/);
 ```
 
+##### Async `add`s
+You can `await` any of the `add` methods, too:
+
+```ts
+await liveAtlas.add.image('your-texture-key', '/path/to/image.png');
+// your-texture-key has loaded!
+```
+
+
 ### Static Images
 ```ts
 // Use the `make` functions to create new assets tied into the LiveAtlas
