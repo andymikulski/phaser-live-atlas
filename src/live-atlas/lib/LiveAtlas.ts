@@ -142,7 +142,7 @@ export class LiveAtlas {
   /**
    * Dictionary of image/frame URLs and their corresponding placement in the atlas.
    */
-  private frames: {
+  public frames: {
     [frameKey: string]: {
       x: number;
       y: number;
@@ -1175,7 +1175,22 @@ export class LiveAtlas {
       if (!frame) {
         continue;
       }
-      this.rt.texture.add(frameUrl, 0, frame.x, frame.y, frame.width, frame.height);
+      const newFrame = this.rt.texture.add(frameUrl, 0, frame.x, frame.y, frame.width, frame.height);
+      if (newFrame && frame.trim) {
+        newFrame.setSize(
+          frame.width - this.framePadding,
+          frame.height - this.framePadding,
+          frame.x,
+          frame.y,
+        ).setTrim(
+          frame.trim.originalWidth,
+          frame.trim.originalHeight,
+          frame.trim.x,
+          frame.trim.y,
+          frame.trim.trimmedWidth,
+          frame.trim.trimmedHeight,
+        );
+      }
     }
 
     // Update the packer to reflect the state it was in when serialized
