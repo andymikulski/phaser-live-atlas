@@ -5,8 +5,8 @@ setTimeout(()=>{
   new Phaser.Game({
     type: Phaser.CANVAS,
     // pixelArt: true,
-    width: 1024,
-    height: 768,
+    width: window.innerWidth,
+    height: window.innerHeight,
     backgroundColor: 0xffffff,
     // scale: {
       // mode: Phaser.Scale.FIT,
