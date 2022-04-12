@@ -1044,6 +1044,19 @@ export class LiveAtlas {
   };
 
   /**
+   * Warning! This will cause an error if any objects are still using this atlas.
+   * Be sure to only run this after you've removed all references to this live atlas.
+   */
+  public clearAll = () => {
+    this.rt.resize(0,0);
+    for(const frame in this.frames) {
+      this.rt.texture.remove(frame);
+    }
+    this.packer = new ShelfPack(1, 1, true);
+    this.frames = {};
+  }
+
+  /**
    * Applies a frame from this atlas to the given Phaser object. Loads the frame into the atlas,
    * if necessary.
    *

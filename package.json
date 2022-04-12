@@ -30,6 +30,7 @@
     "@types/mapbox__shelf-pack": "^3.0.1",
     "@types/node": "7.0.0",
     "awesome-typescript-loader": "5.2.0",
+    "dat.gui": "^0.7.9",
     "jasmine-core": "3.1.0",
     "karma": "2.0.4",
     "karma-jasmine": "1.1.2",
@@ -46,6 +47,7 @@
   },
   "dependencies": {
     "@mapbox/shelf-pack": "^3.2.0",
+    "@types/dat.gui": "^0.7.7",
     "phaser": "3.60.0-beta.4",
     "tsconfig-paths-webpack-plugin": "^3.5.2",
     "typedoc": "^0.22.13"
