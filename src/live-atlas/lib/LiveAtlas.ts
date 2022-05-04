@@ -692,7 +692,7 @@ export class LiveAtlas {
     }
 
     // Remove frame padding from the final rect so our frame isn't larger than its content
-    const halfPadding = (this.framePadding / 2) | 0;
+    const halfPadding = Math.ceil(this.framePadding / 2);
     this.frames[frameKey] = {
       x: packedFrame.x,
       y: packedFrame.y,
@@ -877,7 +877,7 @@ export class LiveAtlas {
       // We need to re-apply the frame trimming that was previously applied.
       // (Without this step, the repack _works_ but then images are displayed with incorrect offsets)
       frame
-        .setSize(rect.width - this.framePadding, rect.height - this.framePadding, rect.x, rect.y)
+        .setSize(rect.width - (this.framePadding / 2), rect.height - (this.framePadding / 2), rect.x, rect.y)
         .setTrim(
           incomingFrame.trim?.originalWidth ?? rect.width,
           incomingFrame.trim?.originalHeight ?? rect.height,
