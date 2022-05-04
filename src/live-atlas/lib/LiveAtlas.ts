@@ -133,6 +133,14 @@ const scratchCanvasID = "live atlas scratch canvas";
  * ```
  */
 export class LiveAtlas {
+  public get width(): number {
+    return this.renderTexture.width;
+  }
+  public get height(): number {
+    return this.renderTexture.height;
+  }
+
+
   /**
    * Amount (in pixels) of padding between each frame.
    * (This shouldn't be too high but enough to compensate for the lack of extrusion.)
