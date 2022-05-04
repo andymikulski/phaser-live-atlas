@@ -9,7 +9,7 @@ new Phaser.Game({
   backgroundColor: 0xffffff,
   scale: {
     mode: Phaser.Scale.RESIZE,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
+    autoCenter: Phaser.Scale.CENTER_HORIZONTALLY,
     expandParent: true
   },
   // Remove or comment to disable physics
